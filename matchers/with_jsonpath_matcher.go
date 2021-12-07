@@ -22,7 +22,7 @@ func NewWithJSONPathMatcher(field string, matcher gtypes.GomegaMatcher) gtypes.G
 			return nil, err
 		}
 		if len(results) == 0 {
-			return nil, nil
+			return []interface{}{}, nil
 		}
 
 		// Multiple results which have one or many values
@@ -45,7 +45,7 @@ func NewWithJSONPathMatcher(field string, matcher gtypes.GomegaMatcher) gtypes.G
 		}
 
 		// No results
-		return nil, nil
+		return []interface{}{}, nil
 	}, matcher)
 }
 
