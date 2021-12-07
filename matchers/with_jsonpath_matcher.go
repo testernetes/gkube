@@ -21,8 +21,6 @@ func NewWithJSONPathMatcher(field string, matcher gtypes.GomegaMatcher) gtypes.G
 		if err != nil {
 			return nil, err
 		}
-
-		// No results
 		if len(results) == 0 {
 			return nil, nil
 		}
@@ -42,7 +40,12 @@ func NewWithJSONPathMatcher(field string, matcher gtypes.GomegaMatcher) gtypes.G
 		}
 
 		// A single result which has a single value
-		return results[0][0].Interface(), nil
+		if len(results[0]) == 1 {
+			return results[0][0].Interface(), nil
+		}
+
+		// No results
+		return nil, nil
 	}, matcher)
 }
 
