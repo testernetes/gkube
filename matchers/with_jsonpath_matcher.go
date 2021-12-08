@@ -9,12 +9,12 @@ import (
 	"k8s.io/client-go/util/jsonpath"
 )
 
-func NewWithJSONPathMatcher(field string, matcher gtypes.GomegaMatcher) gtypes.GomegaMatcher {
+func NewWithJSONPathMatcher(jpath string, matcher gtypes.GomegaMatcher) gtypes.GomegaMatcher {
 	return WithTransform(func(obj interface{}) (interface{}, error) {
-		j := jsonpath.New("").AllowMissingKeys(true)
-		err := j.Parse(field)
+		j := jsonpath.New("")
+		err := j.Parse(jpath)
 		if err != nil {
-			return nil, fmt.Errorf("the supplied JSON Path '%s' is invalid: %s", field, err.Error())
+			return nil, fmt.Errorf("JSON Path '%s' is invalid: %s", jpath, err.Error())
 		}
 
 		results, err := j.FindResults(obj)
@@ -22,30 +22,28 @@ func NewWithJSONPathMatcher(field string, matcher gtypes.GomegaMatcher) gtypes.G
 			return nil, err
 		}
 		if len(results) == 0 {
-			return []interface{}{}, nil
+			return nil, fmt.Errorf("JSON Path '%s' did not produce any results.", jpath)
+		}
+
+		if len(results) == 1 {
+			switch len(results[0]) {
+			case 0:
+				return nil, fmt.Errorf("JSON Path '%s' did not produce any results.", jpath)
+			case 1:
+				// A single result which has a single value
+				return results[0][0].Interface(), nil
+			default:
+				// A single result which has multiple values
+				return getInterfaces(results[0]), nil
+			}
 		}
 
 		// Multiple results which have one or many values
-		if len(results) > 1 {
-			res := make([]interface{}, len(results))
-			for i := range results {
-				res[i] = getInterfaces(results[i])
-			}
-			return res, nil
+		res := make([]interface{}, len(results))
+		for i := range results {
+			res[i] = getInterfaces(results[i])
 		}
-
-		// A single result which has multiple values
-		if len(results[0]) > 1 {
-			return getInterfaces(results[0]), nil
-		}
-
-		// A single result which has a single value
-		if len(results[0]) == 1 {
-			return results[0][0].Interface(), nil
-		}
-
-		// No results
-		return []interface{}{}, nil
+		return res, nil
 	}, matcher)
 }
 
