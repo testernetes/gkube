@@ -19,7 +19,7 @@ func NewWithJSONPathMatcher(jpath string, matcher gtypes.GomegaMatcher) gtypes.G
 
 		results, err := j.FindResults(obj)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("JSON Path '%s' failed: %s", jpath, err.Error())
 		}
 		if len(results) == 0 {
 			return nil, fmt.Errorf("JSON Path '%s' did not produce any results.", jpath)
