@@ -64,15 +64,12 @@ A Kubernetes Helper interface designed to be used with Gomega assertions.
 
 ### Options
 
-The helper can be constucted by provided zero or many options
+The helper can be constucted by provided zero or many options:
 
-`WithClient` passes a client for interacting with Kubernetes API servers.
-
-`WithConfig` passes config for initializing REST configs for talking to the Kubernetes API.
-
-`WithScheme` passes a scheme which contains information associating Go types with Kubernetes groups, versions, and kinds.
-
-`WithContext` passes a context which carries deadlines, cancellation signals, and other request-scoped values.
+* `WithClient` passes a client for interacting with Kubernetes API servers.
+* `WithConfig` passes config for initializing REST configs for talking to the Kubernetes API.
+* `WithScheme` passes a scheme which contains information associating Go types with Kubernetes groups, versions, and kinds.
+* `WithContext` passes a context which carries deadlines, cancellation signals, and other request-scoped values.
 
 Example for using the KubernetesHelper with Openshift Custom Resources:
 ```go
@@ -84,8 +81,7 @@ k8s := NewKubernetesHelper(WithScheme(scheme))
 
 ### Client Helpers
 
-Create, Delete, DeleteAllOf, Get, List, Patch, PatchStatus, Update client functions are wrapped in a `func() error`
-for convience when using `Eventually`.
+Create, Delete, DeleteAllOf, Get, List, Patch, PatchStatus, Update wrap their respective client functions by returning a function which can be called by Gomega's Eventually or Consistently. The function returns an error if it occurs.
 
 ### Object Helpers
 
@@ -109,7 +105,7 @@ Eventually(k8s.Objects(&corev1.ConfigMapList{}, InNamespace("default"))).Should(
 
 ### WithJSONPath
 
-To be used in conjunction with the `Object` or `Objects` helpers. It transforms the object by the given expression and runs sa nested matcher against the result(s).
+To be used in conjunction with the `Object` or `Objects` helpers. It transforms the object by the given expression and runs a nested matcher against the result(s).
 
 See Kubernetes documentation for more details and examples for JSONPath: https://kubernetes.io/docs/reference/kubectl/jsonpath/
 
