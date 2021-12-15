@@ -32,14 +32,14 @@ var _ = Describe("Simple use of the KubernetesHelper", Ordered, func() {
 		}
 	})
 
-	It("Should create a namespace", func() {
+	It("should create a namespace", func() {
 		Eventually(k8s.Create(namespace)).Should(Succeed())
 		Eventually(k8s.Object(namespace)).Should(
 			WithJSONPath("{.status.phase}", Equal(corev1.NamespacePhase("Active"))),
 		)
 	})
 
-	It("Filtering a list of namespaces using a JSONPath", func() {
+	It("should filter a list of namespaces using a JSONPath", func() {
 		Eventually(k8s.Objects(&corev1.NamespaceList{})).Should(
 			WithJSONPath("{.items[*].metadata.name}", ContainElement("simple")),
 		)
@@ -55,6 +55,8 @@ func TestKubernetesHelper(t *testing.T) {
 	RunSpecs(t, "Simple")
 }
 ```
+
+More examples can be found at [https://github.com/matt-simons/gkube-examples](https://github.com/matt-simons/gkube-examples)
 
 ## Helper
 
@@ -88,6 +90,17 @@ Object and Objects use Get to retrieve a specificed Object or ObjectList, howeve
 which is passed to a matcher.
 
 When using Object the object's name must be provided and namespace if it is namespaced.
+
+### Client Options
+
+The controller-runtime's client options are also surfaced for convience when gkube is dot imported.
+Options can be provided to all compatible helpers, e.g.:
+```go
+Eventually(k8s.Objects(&corev1.ConfigMapList{}, InNamespace("default"))).Should(WithJSONPath(
+	"{.items[*].metadata.name}",
+	ContainElement("my-configmap")),
+)
+```
 
 ## Matchers
 
