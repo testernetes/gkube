@@ -67,8 +67,11 @@ A Kubernetes Helper interface designed to be used with Gomega assertions.
 The helper can be constucted by provided zero or many options
 
 `WithClient` passes a client for interacting with Kubernetes API servers.
+
 `WithConfig` passes config for initializing REST configs for talking to the Kubernetes API.
+
 `WithScheme` passes a scheme which contains information associating Go types with Kubernetes groups, versions, and kinds.
+
 `WithContext` passes a context which carries deadlines, cancellation signals, and other request-scoped values.
 
 Example for using the KubernetesHelper with Openshift Custom Resources:
