@@ -101,6 +101,23 @@ Eventually(k8s.Objects(&corev1.ConfigMapList{}, InNamespace("default"))).Should(
 )
 ```
 
+### Pod Subresource Helpers
+
+These helpers interact with some of the more useful pod subresources.
+
+#### Exec
+
+Executes a command in a running pod, this helper functions similarly to [gexec](https://onsi.github.io/gomega/#gexec-testing-external-processes).
+It allows you to assert against the exit code, and stream output into gbytes.Buffers to allow you make assertions against output.
+
+#### Log
+
+TBD
+
+#### PortForward
+
+TBD
+
 ## Matchers
 
 ### WithJSONPath

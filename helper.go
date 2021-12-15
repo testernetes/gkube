@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"os/exec"
 	"sync"
 	"time"
 
@@ -46,7 +45,7 @@ type KubernetesHelper interface {
 	Get(client.Object) func() error
 	List(client.ObjectList, ...client.ListOption) func() error
 
-	Exec(corev1.Pod, string, *exec.Cmd, io.Writer, io.Writer) (*PodSession, error)
+	Exec(*corev1.Pod, *corev1.PodExecOptions, io.Writer, io.Writer) (*PodSession, error)
 	Object(client.Object) func(g Gomega) client.Object
 	Objects(client.ObjectList, ...client.ListOption) func(g Gomega) client.ObjectList
 	Patch(client.Object, client.Patch, ...client.PatchOption) func(g Gomega) error
@@ -96,6 +95,12 @@ func NewKubernetesHelper(opts ...HelperOption) KubernetesHelper {
 	Expect(err).ShouldNot(HaveOccurred())
 	helper.PodRestInterface = podRestInterface
 
+	//clientset, err := kubernetes.NewForConfig(helper.Config)
+	//if err != nil {
+	//	panic("error in getting access to K8S")
+	//}
+	//clientset.CoreV1().RESTClient()
+
 	return helper
 }
 
@@ -117,7 +122,7 @@ func (m *helper) DeleteAllOf(obj client.Object, opts ...client.DeleteAllOfOption
 	}
 }
 
-func (h *helper) Exec(pod corev1.Pod, container string, command *exec.Cmd, outWriter io.Writer, errWriter io.Writer) (*PodSession, error) {
+func (h *helper) Exec(pod *corev1.Pod, podExecOpts *corev1.PodExecOptions, outWriter io.Writer, errWriter io.Writer) (*PodSession, error) {
 	exited := make(chan struct{})
 
 	session := &PodSession{
@@ -151,13 +156,7 @@ func (h *helper) Exec(pod corev1.Pod, container string, command *exec.Cmd, outWr
 		Namespace(pod.Namespace).
 		SubResource("exec").
 		Timeout(45*time.Second).
-		VersionedParams(&corev1.PodExecOptions{
-			Command:   append([]string{command.Path}, command.Args...),
-			Container: container,
-			Stdin:     false,
-			Stdout:    true,
-			Stderr:    true,
-		}, scheme.ParameterCodec)
+		VersionedParams(podExecOpts, scheme.ParameterCodec)
 
 	executor, err := remotecommand.NewSPDYExecutor(h.Config, http.MethodPost, execReq.URL())
 	if err != nil {
