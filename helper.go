@@ -45,7 +45,7 @@ type KubernetesHelper interface {
 	Get(client.Object) func() error
 	List(client.ObjectList, ...client.ListOption) func() error
 
-	Exec(*corev1.Pod, *corev1.PodExecOptions, io.Writer, io.Writer) (*PodSession, error)
+	Exec(*corev1.Pod, *corev1.PodExecOptions, time.Duration, io.Writer, io.Writer) (*PodSession, error)
 	Object(client.Object) func(g Gomega) client.Object
 	Objects(client.ObjectList, ...client.ListOption) func(g Gomega) client.ObjectList
 	Patch(client.Object, client.Patch, ...client.PatchOption) func(g Gomega) error
@@ -63,6 +63,10 @@ type helper struct {
 }
 
 func NewKubernetesHelper(opts ...HelperOption) KubernetesHelper {
+	return newKubernetesHelper(opts...)
+}
+
+func newKubernetesHelper(opts ...HelperOption) *helper {
 	helper := &helper{}
 	helper.ApplyOptions(opts)
 
@@ -122,7 +126,7 @@ func (m *helper) DeleteAllOf(obj client.Object, opts ...client.DeleteAllOfOption
 	}
 }
 
-func (h *helper) Exec(pod *corev1.Pod, podExecOpts *corev1.PodExecOptions, outWriter io.Writer, errWriter io.Writer) (*PodSession, error) {
+func (h *helper) Exec(pod *corev1.Pod, podExecOpts *corev1.PodExecOptions, timeout time.Duration, outWriter, errWriter io.Writer) (*PodSession, error) {
 	exited := make(chan struct{})
 
 	session := &PodSession{
@@ -155,19 +159,23 @@ func (h *helper) Exec(pod *corev1.Pod, podExecOpts *corev1.PodExecOptions, outWr
 		Name(pod.Name).
 		Namespace(pod.Namespace).
 		SubResource("exec").
-		Timeout(45*time.Second).
+		Timeout(timeout).
 		VersionedParams(podExecOpts, scheme.ParameterCodec)
 
+	// https://github.com/kubernetes/kubernetes/pull/103177
+	// update to cancel commands which timeout after this merges
 	executor, err := remotecommand.NewSPDYExecutor(h.Config, http.MethodPost, execReq.URL())
 	if err != nil {
 		return session, err
 	}
 
 	go func() {
-		session.lock.Lock()
 		err := executor.Stream(streamOpts)
+		session.lock.Lock()
 		defer session.lock.Unlock()
 		defer close(exited)
+		session.Out.Close()
+		session.Err.Close()
 		if err != nil {
 			if exitcode, ok := err.(k8sExec.CodeExitError); ok {
 				session.Code = exitcode.Code

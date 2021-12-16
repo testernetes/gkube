@@ -8,7 +8,6 @@ import (
 	"k8s.io/client-go/util/jsonpath"
 )
 
-// Have an option NoFlatten which always returns [][]interface
 func NewWithJSONPathMatcher(jpath string, matcher gtypes.GomegaMatcher) gtypes.GomegaMatcher {
 	return WithTransform(func(obj interface{}) (interface{}, error) {
 		j := jsonpath.New("")

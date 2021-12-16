@@ -28,7 +28,7 @@ type k8sClient struct {
 }
 
 func (c k8sClient) ApplyToHelper(opts *helper) {
-	opts.Client = c
+	opts.Client = c.Client
 }
 
 // Config Option
@@ -67,5 +67,5 @@ type k8sContext struct {
 }
 
 func (c k8sContext) ApplyToHelper(opts *helper) {
-	opts.Context = c
+	opts.Context = c.Context
 }
