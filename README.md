@@ -73,6 +73,10 @@ The helper can be constucted by providing zero or many options:
 
 Example for using the KubernetesHelper with Openshift Custom Resources:
 ```go
+import openshiftapi "github.com/openshift/api"
+
+...
+
 scheme := runtime.NewScheme()
 openshiftapi.Install(scheme)
 k8s := NewKubernetesHelper(WithScheme(scheme))
@@ -81,7 +85,7 @@ k8s := NewKubernetesHelper(WithScheme(scheme))
 
 ### Client Helpers
 
-Create, Delete, DeleteAllOf, Get, List, Patch, PatchStatus, Update wrap their respective client functions by returning a function which can be called by Gomega's Eventually or Consistently. The function returns an error if it occurs.
+Create, Delete, DeleteAllOf, Get, List, Patch, Update wrap their respective client functions by returning a function which can be called by Gomega's Eventually or Consistently. The function returns an error if it occurs.
 
 ### Object Helpers
 
@@ -92,12 +96,14 @@ When using Object the object's name must be provided and namespace if it is name
 
 ### Client Options
 
-The controller-runtime's client options are also surfaced for convience when gkube is dot imported.
-Options can be provided to all compatible helpers, e.g.:
+The controller-runtime's [client](https://pkg.go.dev/sigs.k8s.io/controller-runtime/pkg/client) options are also surfaced for convience when gkube is dot imported.
+Zero or many options can be provided to all compatible helpers, e.g.:
 ```go
 Eventually(k8s.Objects(&corev1.ConfigMapList{}, InNamespace("default"))).Should(WithJSONPath(
-	"{.items[*].metadata.name}", ContainElement("my-configmap")),
-)
+	"{.items[*].metadata.name}", ContainElement("my-configmap")))
+
+Eventually(k8s.DeleteAllOf(&corev1.Pod{},
+	InNamespace("default"), MatchingLabels{"app": "foo"})).Should(Succeed())
 ```
 
 ### Pod Subresource Helpers
@@ -121,19 +127,20 @@ TBD
 
 ### WithJSONPath
 
-Can be used in conjunction with the `Object` or `Objects` helpers. It transforms the object by the given expression and runs a nested matcher against the result(s).
+`WithJSONPath` is a [transformer](https://onsi.github.io/gomega/#withtransformtransform-interface-matcher-gomegamatcher) function. It transforms the expected object by an expression then evaluates a matcher against the result(s), it can be used in conjunction with the `Object` or `Objects` helpers.
 
-See Kubernetes documentation for more details and examples for JSONPath: https://kubernetes.io/docs/reference/kubectl/jsonpath/
+If only one result is produced from the expression then the results list is flattened for convience. It's is generally recommended to keep expressions simple and specific to a field. If you need to validate multiple fields, use multiple assertions or the [EqualObject](#EqualObject) matcher.
 
-Example returning a pod phase:
+See Kubernetes JSONPath documentation for more details and examples: https://kubernetes.io/docs/reference/kubectl/jsonpath/
+
+Example asserting a pod phase:
 ```go
 Eventually(k8s.Object(pod)).WithTimeout(time.Minute).Should(WithJSONPath(
-	"{.status.phase}",
-	BeEquivalentTo(corev1.PodRunning),
+	"{.status.phase}", BeEquivalentTo(corev1.PodRunning),
 )
 ```
 
-Example returning a specific condition from a deployment:
+Example asserting a specific condition from a deployment:
 ```go
 Eventually(k8s.Object(deployment)).WithTimeout(time.Minute).Should(WithJSONPath(
 	`{.status.conditions[?(@.type=="Available")]}`,
@@ -143,7 +150,6 @@ Eventually(k8s.Object(deployment)).WithTimeout(time.Minute).Should(WithJSONPath(
 	}),
 ))
 ```
-
 
 ### EqualObject
 
