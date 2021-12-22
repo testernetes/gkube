@@ -113,7 +113,24 @@ These helpers interact with some of the more useful pod subresources.
 #### Exec
 
 Executes a command in a running pod, this helper functions similarly to [gexec](https://onsi.github.io/gomega/#gexec-testing-external-processes).
-It allows you to assert against the exit code, and stream output into gbytes.Buffers to allow you make assertions against output.
+It allows you to assert against the exit code, and stream output into `gbytes.Buffer` to allow you make assertions against output.
+
+```go
+Eventually(k8s.Object(pod)).WithTimeout(time.Minute).Should(WithJSONPath(
+	`{.status.phase}`, BeEquivalentTo(corev1.PodRunning)))
+
+execOpts := &corev1.PodExecOptions{
+	Container: pod.Spec.Containers[0].Name,
+	Command:   []string{"/bin/sh", "-c", "echo hellopod"},
+	Stdout:    true,
+	Stderr:    true,
+}
+session, err := k8s.Exec(pod, execOpts, time.Minute, GinkgoWriter, GinkgoWriter)
+Expect(err).ShouldNot(HaveOccurred())
+
+Eventually(session).WithTimeout(time.Minute).Should(Exit())
+Eventually(session).Should(Say("hellopod"))
+```
 
 #### Log
 
