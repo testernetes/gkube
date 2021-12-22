@@ -116,7 +116,7 @@ func (m *helper) Create(obj client.Object, opts ...client.CreateOption) func() e
 
 func (m *helper) Delete(obj client.Object, opts ...client.DeleteOption) func() error {
 	return func() error {
-		return m.Client.Delete(m.Context, obj, opts...)
+		return client.IgnoreNotFound(m.Client.Delete(m.Context, obj, opts...))
 	}
 }
 
@@ -127,12 +127,9 @@ func (m *helper) DeleteAllOf(obj client.Object, opts ...client.DeleteAllOfOption
 }
 
 func (h *helper) Exec(pod *corev1.Pod, podExecOpts *corev1.PodExecOptions, timeout time.Duration, outWriter, errWriter io.Writer) (*PodSession, error) {
-	exited := make(chan struct{})
-
 	session := &PodSession{
 		Out:      gbytes.NewBuffer(),
 		Err:      gbytes.NewBuffer(),
-		Exited:   exited,
 		lock:     &sync.Mutex{},
 		exitCode: -1,
 	}
@@ -171,18 +168,17 @@ func (h *helper) Exec(pod *corev1.Pod, podExecOpts *corev1.PodExecOptions, timeo
 
 	go func() {
 		err := executor.Stream(streamOpts)
-		session.lock.Lock()
-		defer session.lock.Unlock()
-		defer close(exited)
 		session.Out.Close()
 		session.Err.Close()
 		if err != nil {
 			if exitcode, ok := err.(k8sExec.CodeExitError); ok {
-				session.Code = exitcode.Code
+				session.exitCode = exitcode.Code
+				return
 			}
+			session.exitCode = 254
 			return
 		}
-		session.Code = 0
+		session.exitCode = 0
 	}()
 	return session, err
 }
