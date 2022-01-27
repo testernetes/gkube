@@ -9,6 +9,7 @@ import (
 	. "github.com/onsi/gomega/gstruct"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 )
 
 var _ = Describe("WithJSONPathMatcher", func() {
@@ -41,6 +42,18 @@ var _ = Describe("WithJSONPathMatcher", func() {
 			matcher := NewWithJSONPathMatcher("{.metadata.name}", BeEmpty())
 
 			success, err := matcher.Match(&corev1.Pod{})
+			Expect(err).ShouldNot(HaveOccurred())
+			Expect(success).Should(BeTrue())
+		})
+	})
+
+	When("passed a valid jsonpath and unstructured object", func() {
+		It("should succeed", func() {
+			matcher := NewWithJSONPathMatcher("{.metadata.name}", Equal("test"))
+
+			u := &unstructured.Unstructured{}
+			u.SetName("test")
+			success, err := matcher.Match(u)
 			Expect(err).ShouldNot(HaveOccurred())
 			Expect(success).Should(BeTrue())
 		})

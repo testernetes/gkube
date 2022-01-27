@@ -5,6 +5,7 @@ import (
 
 	. "github.com/onsi/gomega"
 	gtypes "github.com/onsi/gomega/types"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/client-go/util/jsonpath"
 )
 
@@ -13,6 +14,10 @@ func NewWithJSONPathMatcher(jpath string, matcher gtypes.GomegaMatcher) gtypes.G
 		j := jsonpath.New("")
 		if err := j.Parse(jpath); err != nil {
 			return nil, fmt.Errorf("JSON Path '%s' is invalid: %s", jpath, err.Error())
+		}
+
+		if u, ok := obj.(*unstructured.Unstructured); ok {
+			obj = u.UnstructuredContent()
 		}
 
 		results, err := j.FindResults(obj)
