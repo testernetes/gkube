@@ -1,4 +1,4 @@
-module github.com/matt-simons/gkube
+module github.com/tkube/gkube
 
 go 1.16
 
@@ -13,5 +13,4 @@ require (
 	k8s.io/client-go v0.22.4
 	k8s.io/utils v0.0.0-20210819203725-bdf08cb9a70a
 	sigs.k8s.io/controller-runtime v0.10.3
-	sigs.k8s.io/yaml v1.3.0 // indirect
 )

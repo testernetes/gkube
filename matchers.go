@@ -1,8 +1,8 @@
 package gkube
 
 import (
-	"github.com/matt-simons/gkube/matchers"
 	gtypes "github.com/onsi/gomega/types"
+	"github.com/tkube/gkube/matchers"
 	"k8s.io/apimachinery/pkg/runtime"
 )
 
