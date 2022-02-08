@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os"
+	"os/signal"
 	"sync"
 	"time"
 
@@ -60,6 +62,8 @@ type helper struct {
 	Client           client.Client
 	Context          context.Context
 	PodRestInterface rest.Interface
+
+	Signals chan os.Signal
 }
 
 func NewKubernetesHelper(opts ...HelperOption) KubernetesHelper {
@@ -105,24 +109,42 @@ func newKubernetesHelper(opts ...HelperOption) *helper {
 	//}
 	//clientset.CoreV1().RESTClient()
 
+	helper.Signals = make(chan os.Signal, 1)
+	signal.Notify(helper.Signals, os.Interrupt)
+
 	return helper
 }
 
-func (m *helper) Create(obj client.Object, opts ...client.CreateOption) func() error {
+func (h *helper) Create(obj client.Object, opts ...client.CreateOption) func() error {
 	return func() error {
-		return m.Client.Create(m.Context, obj, opts...)
+		select {
+		case <-h.Signals:
+			panic("Interrupted by User")
+		default:
+			return h.Client.Create(h.Context, obj, opts...)
+		}
 	}
 }
 
-func (m *helper) Delete(obj client.Object, opts ...client.DeleteOption) func() error {
+func (h *helper) Delete(obj client.Object, opts ...client.DeleteOption) func() error {
 	return func() error {
-		return client.IgnoreNotFound(m.Client.Delete(m.Context, obj, opts...))
+		select {
+		case <-h.Signals:
+			panic("Interrupted by User")
+		default:
+			return client.IgnoreNotFound(h.Client.Delete(h.Context, obj, opts...))
+		}
 	}
 }
 
-func (m *helper) DeleteAllOf(obj client.Object, opts ...client.DeleteAllOfOption) func() error {
+func (h *helper) DeleteAllOf(obj client.Object, opts ...client.DeleteAllOfOption) func() error {
 	return func() error {
-		return m.Client.DeleteAllOf(m.Context, obj, opts...)
+		select {
+		case <-h.Signals:
+			panic("Interrupted by User")
+		default:
+			return h.Client.DeleteAllOf(h.Context, obj, opts...)
+		}
 	}
 }
 
@@ -183,57 +205,92 @@ func (h *helper) Exec(pod *corev1.Pod, podExecOpts *corev1.PodExecOptions, timeo
 	return session, err
 }
 
-// Get gets the object from the API server.
-func (m *helper) Get(obj client.Object) func() error {
+// Get gets the object froh the API server.
+func (h *helper) Get(obj client.Object) func() error {
 	return func() error {
-		return m.Client.Get(m.Context, client.ObjectKeyFromObject(obj), obj)
+		select {
+		case <-h.Signals:
+			panic("Interrupted by User")
+		default:
+			return h.Client.Get(h.Context, client.ObjectKeyFromObject(obj), obj)
+		}
 	}
 }
 
-// List gets the list object from the API server.
-func (m *helper) List(obj client.ObjectList, listOptions ...client.ListOption) func() error {
+// List gets the list object froh the API server.
+func (h *helper) List(obj client.ObjectList, listOptions ...client.ListOption) func() error {
 	return func() error {
-		return m.Client.List(m.Context, obj, listOptions...)
+		select {
+		case <-h.Signals:
+			panic("Interrupted by User")
+		default:
+			return h.Client.List(h.Context, obj, listOptions...)
+		}
 	}
 }
 
-func (m *helper) Object(obj client.Object) func(g Gomega) client.Object {
+func (h *helper) Object(obj client.Object) func(g Gomega) client.Object {
 	return func(g Gomega) client.Object {
-		g.Expect(m.Client.Get(m.Context, client.ObjectKeyFromObject(obj), obj)).Should(Succeed())
-		return obj
+		select {
+		case <-h.Signals:
+			panic("Interrupted by User")
+		default:
+			g.Expect(h.Client.Get(h.Context, client.ObjectKeyFromObject(obj), obj)).Should(Succeed())
+			return obj
+		}
 	}
 }
 
-func (m *helper) Objects(obj client.ObjectList, listOptions ...client.ListOption) func(g Gomega) client.ObjectList {
+func (h *helper) Objects(obj client.ObjectList, listOptions ...client.ListOption) func(g Gomega) client.ObjectList {
 	return func(g Gomega) client.ObjectList {
-		g.Expect(m.Client.List(m.Context, obj, listOptions...)).Should(Succeed())
-		return obj
+		select {
+		case <-h.Signals:
+			panic("Interrupted by User")
+		default:
+			g.Expect(h.Client.List(h.Context, obj, listOptions...)).Should(Succeed())
+			return obj
+		}
 	}
 }
 
-func (m *helper) Patch(obj client.Object, patch client.Patch, opts ...client.PatchOption) func(g Gomega) error {
+func (h *helper) Patch(obj client.Object, patch client.Patch, opts ...client.PatchOption) func(g Gomega) error {
 	key := client.ObjectKeyFromObject(obj)
 	return func(g Gomega) error {
-		g.Expect(m.Client.Get(m.Context, key, obj)).Should(Succeed())
-		return m.Client.Patch(m.Context, obj, patch, opts...)
+		select {
+		case <-h.Signals:
+			panic("Interrupted by User")
+		default:
+			g.Expect(h.Client.Get(h.Context, key, obj)).Should(Succeed())
+			return h.Client.Patch(h.Context, obj, patch, opts...)
+		}
 	}
 }
 
-func (m *helper) Update(obj client.Object, f controllerutil.MutateFn, opts ...client.UpdateOption) func(g Gomega) error {
+func (h *helper) Update(obj client.Object, f controllerutil.MutateFn, opts ...client.UpdateOption) func(g Gomega) error {
 	key := client.ObjectKeyFromObject(obj)
 	return func(g Gomega) error {
-		g.Expect(m.Client.Get(m.Context, key, obj)).Should(Succeed())
-		g.Expect(mutate(f, key, obj)).Should(Succeed())
-		return m.Client.Update(m.Context, obj, opts...)
+		select {
+		case <-h.Signals:
+			panic("Interrupted by User")
+		default:
+			g.Expect(h.Client.Get(h.Context, key, obj)).Should(Succeed())
+			g.Expect(mutate(f, key, obj)).Should(Succeed())
+			return h.Client.Update(h.Context, obj, opts...)
+		}
 	}
 }
 
-func (m *helper) UpdateStatus(obj client.Object, f controllerutil.MutateFn, opts ...client.UpdateOption) func(g Gomega) error {
+func (h *helper) UpdateStatus(obj client.Object, f controllerutil.MutateFn, opts ...client.UpdateOption) func(g Gomega) error {
 	key := client.ObjectKeyFromObject(obj)
 	return func(g Gomega) error {
-		g.Expect(m.Client.Get(m.Context, key, obj)).Should(Succeed())
-		g.Expect(mutate(f, key, obj)).Should(Succeed())
-		return m.Client.Status().Update(m.Context, obj, opts...)
+		select {
+		case <-h.Signals:
+			panic("Interrupted by User")
+		default:
+			g.Expect(h.Client.Get(h.Context, key, obj)).Should(Succeed())
+			g.Expect(mutate(f, key, obj)).Should(Succeed())
+			return h.Client.Status().Update(h.Context, obj, opts...)
+		}
 	}
 }
 
