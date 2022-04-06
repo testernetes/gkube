@@ -10,7 +10,7 @@ package simple
 import (
 	"testing"
 
-	. "github.com/tkube/gkube"
+	. "github.com/testernetes/gkube"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
@@ -56,7 +56,7 @@ func TestKubernetesHelper(t *testing.T) {
 }
 ```
 
-More examples can be found at [https://github.com/tkube/gkube-examples](https://github.com/tkube/gkube-examples)
+More examples can be found at [https://github.com/testernetes/gkube-examples](https://github.com/testernetes/gkube-examples)
 
 ## Helper
 

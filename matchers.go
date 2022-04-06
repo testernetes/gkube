@@ -2,7 +2,7 @@ package gkube
 
 import (
 	gtypes "github.com/onsi/gomega/types"
-	"github.com/tkube/gkube/matchers"
+	"github.com/testernetes/gkube/matchers"
 	"k8s.io/apimachinery/pkg/runtime"
 )
 

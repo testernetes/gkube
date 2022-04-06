@@ -1,4 +1,4 @@
-module github.com/tkube/gkube
+module github.com/testernetes/gkube
 
 go 1.16
 
