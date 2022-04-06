@@ -16,6 +16,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/runtime/serializer"
+	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/remotecommand"
@@ -60,6 +61,7 @@ type helper struct {
 	Scheme           *runtime.Scheme
 	Config           *rest.Config
 	Client           client.Client
+	Clientset        *kubernetes.Clientset
 	Context          context.Context
 	PodRestInterface rest.Interface
 
@@ -103,11 +105,11 @@ func newKubernetesHelper(opts ...HelperOption) *helper {
 	Expect(err).ShouldNot(HaveOccurred())
 	helper.PodRestInterface = podRestInterface
 
-	//clientset, err := kubernetes.NewForConfig(helper.Config)
-	//if err != nil {
-	//	panic("error in getting access to K8S")
-	//}
-	//clientset.CoreV1().RESTClient()
+	clientset, err := kubernetes.NewForConfig(helper.Config)
+	if err != nil {
+		panic("error in getting access to K8S")
+	}
+	helper.Clientset = clientset
 
 	helper.Signals = make(chan os.Signal, 1)
 	signal.Notify(helper.Signals, os.Interrupt)
@@ -205,7 +207,7 @@ func (h *helper) Exec(pod *corev1.Pod, podExecOpts *corev1.PodExecOptions, timeo
 	return session, err
 }
 
-// Get gets the object froh the API server.
+// Get gets the object from the API server.
 func (h *helper) Get(obj client.Object) func() error {
 	return func() error {
 		select {
@@ -217,7 +219,42 @@ func (h *helper) Get(obj client.Object) func() error {
 	}
 }
 
-// List gets the list object froh the API server.
+// List gets the list object from the API server.
+func (h *helper) Logs(pod *corev1.Pod, podLogOptions *corev1.PodLogOptions, outWriter io.Writer) (*PodSession, error) {
+	stream, err := h.Clientset.CoreV1().
+		Pods(pod.Namespace).
+		GetLogs(pod.Name, podLogOptions).
+		Stream(context.TODO())
+	if err != nil {
+		return nil, err
+	}
+
+	session := &PodSession{
+		Out:      gbytes.NewBuffer(),
+		lock:     &sync.Mutex{},
+		exitCode: -1,
+	}
+
+	var logOut io.Writer = session.Out
+
+	if outWriter != nil {
+		logOut = io.MultiWriter(logOut, outWriter)
+	}
+
+	go func() {
+		defer stream.Close()
+		_, err := io.Copy(logOut, stream)
+		if err != nil {
+			session.exitCode = 254
+			return
+		}
+		session.exitCode = 0
+	}()
+
+	return session, nil
+}
+
+// List gets the list object from the API server.
 func (h *helper) List(obj client.ObjectList, listOptions ...client.ListOption) func() error {
 	return func() error {
 		select {

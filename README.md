@@ -134,7 +134,23 @@ Eventually(session).Should(Say("hellopod"))
 
 #### Log
 
-TBD
+Streams logs from a pod, this helper functions similarly to [gexec](https://onsi.github.io/gomega/#gexec-testing-external-processes). The session will 'exit' when EOF is reached or an error occurs.
+
+```go
+Eventually(k8s.Create(pod)).Should(Succeed())
+Eventually(k8s.Object(pod)).WithTimeout(time.Minute).Should(WithJSONPath(
+	`{.status.phase}`, BeEquivalentTo(corev1.PodSucceeded)))
+
+logOpts := &corev1.PodLogOptions{
+	Follow: false,
+	Container: pod.Spec.Containers[0].Name,
+}
+session, err := k8s.Logs(pod, logOpts, GinkgoWriter)
+Expect(err).ShouldNot(HaveOccurred())
+
+Eventually(session).WithTimeout(time.Minute).Should(Exit())
+Eventually(session.Out).Should(Say("hellopod"))
+```
 
 #### PortForward
 

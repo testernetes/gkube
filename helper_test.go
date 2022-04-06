@@ -35,6 +35,46 @@ var _ = Describe("KubernetesHelper", func() {
 		k8s = newKubernetesHelper(opts...)
 	})
 
+	When("streaming logs from a pod", func() {
+		var pod *corev1.Pod
+		BeforeEach(func() {
+			pod = &corev1.Pod{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "log-pod",
+					Namespace: "default",
+				},
+				Spec: corev1.PodSpec{
+					Containers: []corev1.Container{
+						{
+							Image:   "gcr.io/atlas-kosmos/busybox:latest",
+							Name:    "test",
+							Command: []string{"/bin/sh"},
+							Args:    []string{"-c", "echo helloworld; exit 0"},
+						},
+					},
+					RestartPolicy: corev1.RestartPolicyNever,
+				},
+			}
+		})
+		It("should run the given command in the container", func() {
+			Eventually(k8s.Create(pod)).Should(Succeed())
+			Eventually(k8s.Object(pod)).WithTimeout(time.Minute).Should(WithJSONPath(
+				`{.status.phase}`, BeEquivalentTo(corev1.PodSucceeded)))
+
+			logOpts := &corev1.PodLogOptions{
+				Container: pod.Spec.Containers[0].Name,
+			}
+			session, err := k8s.Logs(pod, logOpts, GinkgoWriter)
+			Expect(err).ShouldNot(HaveOccurred())
+
+			Eventually(session).WithTimeout(time.Minute).Should(Exit())
+			Eventually(session.Out).Should(Say("helloworld"))
+		})
+		AfterEach(func() {
+			Eventually(k8s.Delete(pod)).Should(Succeed())
+		})
+	})
+
 	When("execing in a pod", func() {
 		var pod *corev1.Pod
 		BeforeEach(func() {
