@@ -35,6 +35,49 @@ var _ = Describe("KubernetesHelper", func() {
 		k8s = newKubernetesHelper(opts...)
 	})
 
+	When("proxying traffic from a pod or service", func() {
+		var pod *corev1.Pod
+		BeforeEach(func() {
+			pod = &corev1.Pod{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "hello",
+					Namespace: "default",
+				},
+				Spec: corev1.PodSpec{
+					Containers: []corev1.Container{
+						{
+							Image:   "gcr.io/atlas-kosmos/busybox:latest",
+							Name:    "test",
+							Command: []string{"/bin/sh"},
+							Args:    []string{"-c", "while true; do echo -e \"HTTP/1.1 200 OK\r\nContent-Length: 10\r\n\r\nhelloworld\" | nc -l -p 8080; done"},
+							Ports: []corev1.ContainerPort{
+								{
+									Name:          "hello",
+									ContainerPort: 8080,
+								},
+							},
+						},
+					},
+					RestartPolicy: corev1.RestartPolicyNever,
+				},
+			}
+		})
+		It("should run the given command in the container", func() {
+			Eventually(k8s.Create(pod)).Should(Succeed())
+			Eventually(k8s.Object(pod)).WithTimeout(time.Minute).Should(HaveJSONPath(
+				`{.status.phase}`, Equal(corev1.PodPhase(corev1.PodRunning))))
+
+			session, err := k8s.ProxyGet(pod, "http", "8080", "/", nil, GinkgoWriter)
+			Expect(err).ShouldNot(HaveOccurred())
+
+			Eventually(session).WithTimeout(time.Minute).Should(Exit())
+			Eventually(session.Out).Should(Say("helloworld"))
+		})
+		AfterEach(func() {
+			Eventually(k8s.Delete(pod)).Should(Succeed())
+		})
+	})
+
 	When("streaming logs from a pod", func() {
 		var pod *corev1.Pod
 		BeforeEach(func() {

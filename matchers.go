@@ -18,3 +18,7 @@ func EqualObject(original runtime.Object, opts ...matchers.EqualObjectMatchOptio
 func WithJSONPath(field string, matcher gtypes.GomegaMatcher) gtypes.GomegaMatcher {
 	return matchers.NewWithJSONPathMatcher(field, matcher)
 }
+
+func HaveJSONPath(path string, matcher gtypes.GomegaMatcher) gtypes.GomegaMatcher {
+	return matchers.NewHaveJSONPathMatcher(path, matcher)
+}

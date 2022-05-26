@@ -303,6 +303,53 @@ func (h *helper) Patch(obj client.Object, patch client.Patch, opts ...client.Pat
 	}
 }
 
+// ProxyGet will perform a HTTP GET on the specified pod or service via
+// Kubernetes proxy
+func (h *helper) ProxyGet(obj client.Object, scheme, port, path string, params map[string]string, outWriter io.Writer) (*PodSession, error) {
+	var stream io.ReadCloser
+	var err error
+
+	switch obj.(type) {
+	case *corev1.Pod:
+		stream, err = h.Clientset.CoreV1().
+			Pods(obj.GetNamespace()).ProxyGet(scheme, obj.GetName(), port, path, params).
+			Stream(context.TODO())
+	case *corev1.Service:
+		stream, err = h.Clientset.CoreV1().
+			Services(obj.GetNamespace()).ProxyGet(scheme, obj.GetName(), port, path, params).
+			Stream(context.TODO())
+	default:
+		return nil, fmt.Errorf("Expected a Pod or Service, got %T", obj)
+	}
+	if err != nil {
+		return nil, err
+	}
+
+	session := &PodSession{
+		Out:      gbytes.NewBuffer(),
+		lock:     &sync.Mutex{},
+		exitCode: -1,
+	}
+
+	var logOut io.Writer = session.Out
+
+	if outWriter != nil {
+		logOut = io.MultiWriter(logOut, outWriter)
+	}
+
+	go func() {
+		defer stream.Close()
+		_, err := io.Copy(logOut, stream)
+		if err != nil {
+			session.exitCode = 254
+			return
+		}
+		session.exitCode = 0
+	}()
+
+	return session, nil
+}
+
 func (h *helper) Update(obj client.Object, f controllerutil.MutateFn, opts ...client.UpdateOption) func(g Gomega) error {
 	key := client.ObjectKeyFromObject(obj)
 	return func(g Gomega) error {
