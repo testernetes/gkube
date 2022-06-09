@@ -1,12 +1,15 @@
 package gkube
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"os/signal"
+	"strings"
 	"sync"
 	"time"
 
@@ -19,7 +22,9 @@ import (
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/rest"
+	"k8s.io/client-go/tools/portforward"
 	"k8s.io/client-go/tools/remotecommand"
+	"k8s.io/client-go/transport/spdy"
 	k8sExec "k8s.io/utils/exec"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/apiutil"
@@ -48,7 +53,9 @@ type KubernetesHelper interface {
 	Get(client.Object) func() error
 	List(client.ObjectList, ...client.ListOption) func() error
 
+	Logs(*corev1.Pod, *corev1.PodLogOptions, io.Writer) (*PodSession, error)
 	Exec(*corev1.Pod, *corev1.PodExecOptions, time.Duration, io.Writer, io.Writer) (*PodSession, error)
+	ProxyGet(client.Object, string, string, string, map[string]string, io.Writer) (*PodSession, error)
 	Object(client.Object) func(g Gomega) client.Object
 	Objects(client.ObjectList, ...client.ListOption) func(g Gomega) client.ObjectList
 	Patch(client.Object, client.Patch, ...client.PatchOption) func(g Gomega) error
@@ -301,6 +308,63 @@ func (h *helper) Patch(obj client.Object, patch client.Patch, opts ...client.Pat
 			return h.Client.Patch(h.Context, obj, patch, opts...)
 		}
 	}
+}
+
+type PortForward struct {
+	stopCh chan struct{}
+	out    gbytes.Buffer
+	err    gbytes.Buffer
+}
+
+func (p *PortForward) Stop() {
+	close(p.stopCh)
+}
+
+func (h *helper) PortForward(obj client.Object, localPort, port int, outWriter io.Writer) (*PortForward, error) {
+	var err error
+	var path string
+	switch obj.(type) {
+	case *corev1.Pod:
+		path = fmt.Sprintf("/api/v1/namespaces/%s/pods/%s/portforward", obj.GetNamespace(), obj.GetName())
+	case *corev1.Service:
+		path = fmt.Sprintf("/api/v1/namespaces/%s/services/%s/portforward", obj.GetNamespace(), obj.GetName())
+	default:
+		return nil, fmt.Errorf("Expected a Pod or Service, got %T", obj)
+	}
+	if err != nil {
+		return nil, err
+	}
+
+	hostIP := strings.TrimLeft(h.Config.Host, "htps:/")
+	serverURL := url.URL{Scheme: "https", Path: path, Host: hostIP}
+
+	roundTripper, upgrader, err := spdy.RoundTripperFor(h.Config)
+	if err != nil {
+		return nil, err
+	}
+	dialer := spdy.NewDialer(upgrader, &http.Client{Transport: roundTripper}, http.MethodPost, &serverURL)
+
+	stopCh, readyCh := make(chan struct{}, 1), make(chan struct{}, 1)
+	out, errOut := new(bytes.Buffer), new(bytes.Buffer)
+
+	fw, err := portforward.New(dialer, []string{fmt.Sprintf("%d:%d", localPort, port)}, stopCh, readyCh, out, errOut)
+	if err != nil {
+		return nil, err
+	}
+
+	for range readyCh { // Kubernetes will close this channel when it has something to tell us.
+	}
+	if len(errOut.String()) != 0 {
+		return nil, fmt.Errorf("%s", errOut.String())
+	} else if len(out.String()) != 0 {
+		fmt.Println(out.String())
+	}
+
+	go func() {
+		err = fw.ForwardPorts()
+	}()
+
+	return &PortForward{stopCh: stopCh}, nil
 }
 
 // ProxyGet will perform a HTTP GET on the specified pod or service via
