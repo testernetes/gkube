@@ -35,13 +35,13 @@ var _ = Describe("Simple use of the KubernetesHelper", Ordered, func() {
 	It("should create a namespace", func() {
 		Eventually(k8s.Create(namespace)).Should(Succeed())
 		Eventually(k8s.Object(namespace)).Should(
-			WithJSONPath("{.status.phase}", Equal(corev1.NamespacePhase("Active"))),
+			HaveJSONPath("{.status.phase}", Equal(corev1.NamespacePhase("Active"))),
 		)
 	})
 
 	It("should filter a list of namespaces using a JSONPath", func() {
 		Eventually(k8s.Objects(&corev1.NamespaceList{})).Should(
-			WithJSONPath("{.items[*].metadata.name}", ContainElement("simple")),
+			HaveJSONPath("{.items[*].metadata.name}", ContainElement("simple")),
 		)
 	})
 
@@ -99,7 +99,7 @@ When using Object the object's name must be provided and namespace if it is name
 The controller-runtime's [client](https://pkg.go.dev/sigs.k8s.io/controller-runtime/pkg/client) options are also surfaced for convenience when gkube is dot imported.
 Zero or many options can be provided to all compatible helpers, e.g.:
 ```go
-Eventually(k8s.Objects(&corev1.ConfigMapList{}, InNamespace("default"))).Should(WithJSONPath(
+Eventually(k8s.Objects(&corev1.ConfigMapList{}, InNamespace("default"))).Should(HaveJSONPath(
 	"{.items[*].metadata.name}", ContainElement("my-configmap")))
 
 Eventually(k8s.DeleteAllOf(&corev1.Pod{},
@@ -116,7 +116,7 @@ Executes a command in a running pod, this helper functions similarly to [gexec](
 It allows you to assert against the exit code, and stream output into `gbytes.Buffer` to allow you make assertions against output.
 
 ```go
-Eventually(k8s.Object(pod)).WithTimeout(time.Minute).Should(WithJSONPath(
+Eventually(k8s.Object(pod)).WithTimeout(time.Minute).Should(HaveJSONPath(
 	`{.status.phase}`, BeEquivalentTo(corev1.PodRunning)))
 
 execOpts := &corev1.PodExecOptions{
@@ -138,7 +138,7 @@ Streams logs from a pod, this helper functions similarly to [gexec](https://onsi
 
 ```go
 Eventually(k8s.Create(pod)).Should(Succeed())
-Eventually(k8s.Object(pod)).WithTimeout(time.Minute).Should(WithJSONPath(
+Eventually(k8s.Object(pod)).WithTimeout(time.Minute).Should(HaveJSONPath(
 	`{.status.phase}`, BeEquivalentTo(corev1.PodSucceeded)))
 
 logOpts := &corev1.PodLogOptions{
@@ -154,13 +154,31 @@ Eventually(session.Out).Should(Say("hellopod"))
 
 #### PortForward
 
-TBD
+Forwards a pod or service port to a local port for testing. Proxy logs and errors can be written to `GinkgoWriter` so that they only output when a test fails.
+
+```go
+Eventually(k8s.Create(pod)).Should(Succeed())
+Eventually(k8s.Object(pod)).WithTimeout(time.Minute).Should(HaveJSONPath(
+        `{.status.phase}`, Equal(corev1.PodPhase(corev1.PodRunning))))
+
+pf, err := k8s.PortForward(pod, []string{"8080:8080"}, GinkgoWriter, GinkgoWriter)
+Expect(err).ShouldNot(HaveOccurred())
+defer pf.Close()
+
+resp, err := http.Get("http://127.0.0.1:8080")
+Expect(err).ShouldNot(HaveOccurred())
+defer resp.Body.Close()
+
+body, err := io.ReadAll(resp.Body)
+Expect(err).ShouldNot(HaveOccurred())
+Expect(body).Should(BeEquivalentTo("helloworld"))
+```
 
 ## Matchers
 
-### WithJSONPath
+### HaveJSONPath
 
-`WithJSONPath` is a [transformer](https://onsi.github.io/gomega/#withtransformtransform-interface-matcher-gomegamatcher) function. It transforms the expected object by an expression then evaluates a matcher against the result(s), it can be used in conjunction with the `Object` or `Objects` helpers.
+`HaveJSONPath` succeeds if the object has a field specified by the given JSON path that passes a given matcher, it can be used in conjunction with the `Object` or `Objects` helpers.
 
 If only one result is produced from the expression then the results list is flattened for convenience. It's is generally recommended to keep expressions simple and specific to a field. If you need to validate multiple fields, use multiple assertions or the [EqualObject](#EqualObject) matcher.
 
@@ -168,14 +186,14 @@ See Kubernetes JSONPath documentation for more details and examples: https://kub
 
 Example asserting a pod phase:
 ```go
-Eventually(k8s.Object(pod)).WithTimeout(time.Minute).Should(WithJSONPath(
+Eventually(k8s.Object(pod)).WithTimeout(time.Minute).Should(HaveJSONPath(
 	"{.status.phase}", BeEquivalentTo(corev1.PodRunning),
 )
 ```
 
 Example asserting a specific condition from a deployment:
 ```go
-Eventually(k8s.Object(deployment)).WithTimeout(time.Minute).Should(WithJSONPath(
+Eventually(k8s.Object(deployment)).WithTimeout(time.Minute).Should(HaveJSONPath(
 	`{.status.conditions[?(@.type=="Available")]}`,
 	MatchFields(IgnoreExtras, Fields{
 		"Status": BeEquivalentTo(corev1.ConditionTrue),

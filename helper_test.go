@@ -2,6 +2,10 @@ package gkube
 
 import (
 	"context"
+	"fmt"
+	"io"
+	"log"
+	"net/http"
 	"time"
 
 	certmgr "github.com/jetstack/cert-manager/pkg/api"
@@ -33,6 +37,7 @@ var _ = Describe("KubernetesHelper", func() {
 
 	JustBeforeEach(func() {
 		k8s = newKubernetesHelper(opts...)
+		log.SetOutput(GinkgoWriter)
 	})
 
 	When("proxying traffic from a pod or service", func() {
@@ -46,7 +51,7 @@ var _ = Describe("KubernetesHelper", func() {
 				Spec: corev1.PodSpec{
 					Containers: []corev1.Container{
 						{
-							Image:   "gcr.io/atlas-kosmos/busybox:latest",
+							Image:   "gcr.io/google-containers/busybox:latest",
 							Name:    "test",
 							Command: []string{"/bin/sh"},
 							Args:    []string{"-c", "while true; do echo -e \"HTTP/1.1 200 OK\r\nContent-Length: 10\r\n\r\nhelloworld\" | nc -l -p 8080; done"},
@@ -62,7 +67,8 @@ var _ = Describe("KubernetesHelper", func() {
 				},
 			}
 		})
-		It("should run the given command in the container", func() {
+
+		It("should get a response from the container via k8s proxy", func() {
 			Eventually(k8s.Create(pod)).Should(Succeed())
 			Eventually(k8s.Object(pod)).WithTimeout(time.Minute).Should(HaveJSONPath(
 				`{.status.phase}`, Equal(corev1.PodPhase(corev1.PodRunning))))
@@ -73,8 +79,31 @@ var _ = Describe("KubernetesHelper", func() {
 			Eventually(session).WithTimeout(time.Minute).Should(Exit())
 			Eventually(session.Out).Should(Say("helloworld"))
 		})
+
+		It("should get a response from the container via k8s portforward", func() {
+			pod.Name = "hello2"
+			Eventually(k8s.Create(pod)).Should(Succeed())
+			Eventually(k8s.Object(pod)).WithTimeout(time.Minute).Should(HaveJSONPath(
+				`{.status.phase}`, Equal(corev1.PodPhase(corev1.PodRunning))))
+
+			pf, err := k8s.PortForward(pod, []string{"0:8080"}, GinkgoWriter, GinkgoWriter)
+			Expect(err).ShouldNot(HaveOccurred())
+			defer pf.Close()
+
+			forwardedPorts, _ := pf.GetPorts()
+			localPort := forwardedPorts[0].Local
+
+			resp, err := http.Get(fmt.Sprintf("http://127.0.0.1:%d", localPort))
+			Expect(err).ShouldNot(HaveOccurred())
+			defer resp.Body.Close()
+
+			body, err := io.ReadAll(resp.Body)
+			Expect(err).ShouldNot(HaveOccurred())
+			Expect(body).Should(BeEquivalentTo("helloworld"))
+
+		})
 		AfterEach(func() {
-			Eventually(k8s.Delete(pod)).Should(Succeed())
+			Eventually(k8s.Delete(pod, GracePeriodSeconds(0))).Should(Succeed())
 		})
 	})
 
@@ -89,7 +118,7 @@ var _ = Describe("KubernetesHelper", func() {
 				Spec: corev1.PodSpec{
 					Containers: []corev1.Container{
 						{
-							Image:   "gcr.io/atlas-kosmos/busybox:latest",
+							Image:   "gcr.io/google-containers/busybox:latest",
 							Name:    "test",
 							Command: []string{"/bin/sh"},
 							Args:    []string{"-c", "echo helloworld; exit 0"},
@@ -101,7 +130,7 @@ var _ = Describe("KubernetesHelper", func() {
 		})
 		It("should run the given command in the container", func() {
 			Eventually(k8s.Create(pod)).Should(Succeed())
-			Eventually(k8s.Object(pod)).WithTimeout(time.Minute).Should(WithJSONPath(
+			Eventually(k8s.Object(pod)).WithTimeout(time.Minute).Should(HaveJSONPath(
 				`{.status.phase}`, BeEquivalentTo(corev1.PodSucceeded)))
 
 			logOpts := &corev1.PodLogOptions{
@@ -114,7 +143,7 @@ var _ = Describe("KubernetesHelper", func() {
 			Eventually(session.Out).Should(Say("helloworld"))
 		})
 		AfterEach(func() {
-			Eventually(k8s.Delete(pod)).Should(Succeed())
+			Eventually(k8s.Delete(pod, GracePeriodSeconds(0))).Should(Succeed())
 		})
 	})
 
@@ -129,7 +158,7 @@ var _ = Describe("KubernetesHelper", func() {
 				Spec: corev1.PodSpec{
 					Containers: []corev1.Container{
 						{
-							Image:   "gcr.io/atlas-kosmos/busybox:latest",
+							Image:   "gcr.io/google-containers/busybox:latest",
 							Name:    "test",
 							Command: []string{"/bin/sh"},
 							Args:    []string{"-c", "sleep 60"},
@@ -140,7 +169,7 @@ var _ = Describe("KubernetesHelper", func() {
 		})
 		It("should run the given command in the container", func() {
 			Eventually(k8s.Create(pod)).Should(Succeed())
-			Eventually(k8s.Object(pod)).WithTimeout(time.Minute).Should(WithJSONPath(
+			Eventually(k8s.Object(pod)).WithTimeout(time.Minute).Should(HaveJSONPath(
 				`{.status.phase}`, BeEquivalentTo(corev1.PodRunning)))
 			execOpts := &corev1.PodExecOptions{
 				Container: pod.Spec.Containers[0].Name,
@@ -155,7 +184,7 @@ var _ = Describe("KubernetesHelper", func() {
 			Eventually(session).Should(Say("hellopod"))
 		})
 		AfterEach(func() {
-			Eventually(k8s.Delete(pod)).Should(Succeed())
+			Eventually(k8s.Delete(pod, GracePeriodSeconds(0))).Should(Succeed())
 		})
 	})
 

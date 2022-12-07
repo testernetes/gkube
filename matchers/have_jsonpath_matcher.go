@@ -11,12 +11,9 @@ import (
 
 type HaveJSONPathMatcher struct {
 	jsonpath string
-
-	matcher types.GomegaMatcher
-
-	name string
-
-	value interface{}
+	matcher  types.GomegaMatcher
+	name     string
+	value    interface{}
 }
 
 func NewHaveJSONPathMatcher(jpath string, matcher types.GomegaMatcher) *HaveJSONPathMatcher {
@@ -29,7 +26,7 @@ func NewHaveJSONPathMatcher(jpath string, matcher types.GomegaMatcher) *HaveJSON
 func (m *HaveJSONPathMatcher) Match(actual interface{}) (success bool, err error) {
 	j := jsonpath.New("")
 	if err := j.Parse(m.jsonpath); err != nil {
-		return false, err
+		return false, fmt.Errorf("JSON Path '%s' is invalid: %s", m.jsonpath, err.Error())
 	}
 
 	if o, ok := actual.(client.Object); ok {

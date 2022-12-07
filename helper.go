@@ -1,7 +1,6 @@
 package gkube
 
 import (
-	"bytes"
 	"context"
 	"fmt"
 	"io"
@@ -52,15 +51,16 @@ type KubernetesHelper interface {
 	DeleteAllOf(client.Object, ...client.DeleteAllOfOption) func() error
 	Get(client.Object) func() error
 	List(client.ObjectList, ...client.ListOption) func() error
-
-	Logs(*corev1.Pod, *corev1.PodLogOptions, io.Writer) (*PodSession, error)
-	Exec(*corev1.Pod, *corev1.PodExecOptions, time.Duration, io.Writer, io.Writer) (*PodSession, error)
-	ProxyGet(client.Object, string, string, string, map[string]string, io.Writer) (*PodSession, error)
 	Object(client.Object) func(g Gomega) client.Object
 	Objects(client.ObjectList, ...client.ListOption) func(g Gomega) client.ObjectList
 	Patch(client.Object, client.Patch, ...client.PatchOption) func(g Gomega) error
 	Update(client.Object, controllerutil.MutateFn, ...client.UpdateOption) func(g Gomega) error
 	UpdateStatus(client.Object, controllerutil.MutateFn, ...client.UpdateOption) func(g Gomega) error
+
+	Exec(*corev1.Pod, *corev1.PodExecOptions, time.Duration, io.Writer, io.Writer) (*PodSession, error)
+	Logs(*corev1.Pod, *corev1.PodLogOptions, io.Writer) (*PodSession, error)
+	PortForward(client.Object, []string, io.Writer, io.Writer) (*portforward.PortForwarder, error)
+	ProxyGet(client.Object, string, string, string, map[string]string, io.Writer) (*PodSession, error)
 }
 
 // helper contains
@@ -310,18 +310,7 @@ func (h *helper) Patch(obj client.Object, patch client.Patch, opts ...client.Pat
 	}
 }
 
-type PortForward struct {
-	stopCh chan struct{}
-	out    gbytes.Buffer
-	err    gbytes.Buffer
-}
-
-func (p *PortForward) Stop() {
-	close(p.stopCh)
-}
-
-func (h *helper) PortForward(obj client.Object, localPort, port int, outWriter io.Writer) (*PortForward, error) {
-	var err error
+func (h *helper) PortForward(obj client.Object, ports []string, outWriter, errWriter io.Writer) (*portforward.PortForwarder, error) {
 	var path string
 	switch obj.(type) {
 	case *corev1.Pod:
@@ -329,10 +318,7 @@ func (h *helper) PortForward(obj client.Object, localPort, port int, outWriter i
 	case *corev1.Service:
 		path = fmt.Sprintf("/api/v1/namespaces/%s/services/%s/portforward", obj.GetNamespace(), obj.GetName())
 	default:
-		return nil, fmt.Errorf("Expected a Pod or Service, got %T", obj)
-	}
-	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("expected a Pod or Service, got %T", obj)
 	}
 
 	hostIP := strings.TrimLeft(h.Config.Host, "htps:/")
@@ -345,26 +331,29 @@ func (h *helper) PortForward(obj client.Object, localPort, port int, outWriter i
 	dialer := spdy.NewDialer(upgrader, &http.Client{Transport: roundTripper}, http.MethodPost, &serverURL)
 
 	stopCh, readyCh := make(chan struct{}, 1), make(chan struct{}, 1)
-	out, errOut := new(bytes.Buffer), new(bytes.Buffer)
 
-	fw, err := portforward.New(dialer, []string{fmt.Sprintf("%d:%d", localPort, port)}, stopCh, readyCh, out, errOut)
+	pf, err := portforward.New(dialer, ports, stopCh, readyCh, outWriter, errWriter)
 	if err != nil {
 		return nil, err
 	}
 
-	for range readyCh { // Kubernetes will close this channel when it has something to tell us.
-	}
-	if len(errOut.String()) != 0 {
-		return nil, fmt.Errorf("%s", errOut.String())
-	} else if len(out.String()) != 0 {
-		fmt.Println(out.String())
-	}
-
+	// Attempt to start port forwarding asynchronously
 	go func() {
-		err = fw.ForwardPorts()
+		err = pf.ForwardPorts()
+		if err != nil {
+			close(stopCh)
+		}
 	}()
 
-	return &PortForward{stopCh: stopCh}, nil
+	// Return when port forwarding is either ready or an error occurs
+	select {
+	case <-readyCh:
+		return pf, nil
+	case <-stopCh:
+		return nil, err
+	case <-h.Signals:
+		panic("Interrupted by User")
+	}
 }
 
 // ProxyGet will perform a HTTP GET on the specified pod or service via
@@ -383,7 +372,7 @@ func (h *helper) ProxyGet(obj client.Object, scheme, port, path string, params m
 			Services(obj.GetNamespace()).ProxyGet(scheme, obj.GetName(), port, path, params).
 			Stream(context.TODO())
 	default:
-		return nil, fmt.Errorf("Expected a Pod or Service, got %T", obj)
+		return nil, fmt.Errorf("expected a Pod or Service, got %T", obj)
 	}
 	if err != nil {
 		return nil, err
