@@ -6,8 +6,6 @@ import (
 	"io"
 	"net/http"
 	"net/url"
-	"os"
-	"os/signal"
 	"strings"
 	"sync"
 	"time"
@@ -46,21 +44,21 @@ type (
 )
 
 type KubernetesHelper interface {
-	Create(client.Object, ...client.CreateOption) func() error
-	Delete(client.Object, ...client.DeleteOption) func() error
-	DeleteAllOf(client.Object, ...client.DeleteAllOfOption) func() error
-	Get(client.Object) func() error
-	List(client.ObjectList, ...client.ListOption) func() error
-	Object(client.Object) func(g Gomega) client.Object
-	Objects(client.ObjectList, ...client.ListOption) func(g Gomega) client.ObjectList
-	Patch(client.Object, client.Patch, ...client.PatchOption) func(g Gomega) error
-	Update(client.Object, controllerutil.MutateFn, ...client.UpdateOption) func(g Gomega) error
-	UpdateStatus(client.Object, controllerutil.MutateFn, ...client.UpdateOption) func(g Gomega) error
+	Create(context.Context, client.Object, ...client.CreateOption) func() error
+	Delete(context.Context, client.Object, ...client.DeleteOption) func() error
+	DeleteAllOf(context.Context, client.Object, ...client.DeleteAllOfOption) func() error
+	Get(context.Context, client.Object) func() error
+	List(context.Context, client.ObjectList, ...client.ListOption) func() error
+	Object(context.Context, client.Object) func(Gomega) client.Object
+	Objects(context.Context, client.ObjectList, ...client.ListOption) func(Gomega) client.ObjectList
+	Patch(context.Context, client.Object, client.Patch, ...client.PatchOption) func(Gomega) error
+	Update(context.Context, client.Object, controllerutil.MutateFn, ...client.UpdateOption) func(Gomega) error
+	UpdateStatus(context.Context, client.Object, controllerutil.MutateFn, ...client.UpdateOption) func(Gomega) error
 
-	Exec(*corev1.Pod, *corev1.PodExecOptions, time.Duration, io.Writer, io.Writer) (*PodSession, error)
-	Logs(*corev1.Pod, *corev1.PodLogOptions, io.Writer) (*PodSession, error)
-	PortForward(client.Object, []string, io.Writer, io.Writer) (*portforward.PortForwarder, error)
-	ProxyGet(client.Object, string, string, string, map[string]string, io.Writer) (*PodSession, error)
+	Exec(context.Context, *corev1.Pod, []string, string, io.Writer, io.Writer) (*PodSession, error)
+	Logs(context.Context, *corev1.Pod, *corev1.PodLogOptions, io.Writer, io.Writer) (*PodSession, error)
+	PortForward(context.Context, client.Object, []string, io.Writer, io.Writer) (*portforward.PortForwarder, error)
+	ProxyGet(context.Context, client.Object, string, string, string, map[string]string, io.Writer, io.Writer) (*PodSession, error)
 }
 
 // helper contains
@@ -69,10 +67,7 @@ type helper struct {
 	Config           *rest.Config
 	Client           client.Client
 	Clientset        *kubernetes.Clientset
-	Context          context.Context
 	PodRestInterface rest.Interface
-
-	Signals chan os.Signal
 }
 
 func NewKubernetesHelper(opts ...HelperOption) KubernetesHelper {
@@ -101,10 +96,6 @@ func newKubernetesHelper(opts ...HelperOption) *helper {
 		helper.Client = c
 	}
 
-	if helper.Context == nil {
-		helper.Context = context.TODO()
-	}
-
 	podRestInterface, err := apiutil.RESTClientForGVK(schema.GroupVersionKind{
 		Version: "v1",
 		Kind:    "Pod",
@@ -113,51 +104,31 @@ func newKubernetesHelper(opts ...HelperOption) *helper {
 	helper.PodRestInterface = podRestInterface
 
 	clientset, err := kubernetes.NewForConfig(helper.Config)
-	if err != nil {
-		panic("error in getting access to K8S")
-	}
+	Expect(err).ShouldNot(HaveOccurred())
 	helper.Clientset = clientset
-
-	helper.Signals = make(chan os.Signal, 1)
-	signal.Notify(helper.Signals, os.Interrupt)
 
 	return helper
 }
 
-func (h *helper) Create(obj client.Object, opts ...client.CreateOption) func() error {
+func (h *helper) Create(ctx context.Context, obj client.Object, opts ...client.CreateOption) func() error {
 	return func() error {
-		select {
-		case <-h.Signals:
-			panic("Interrupted by User")
-		default:
-			return h.Client.Create(h.Context, obj, opts...)
-		}
+		return h.Client.Create(ctx, obj, opts...)
 	}
 }
 
-func (h *helper) Delete(obj client.Object, opts ...client.DeleteOption) func() error {
+func (h *helper) Delete(ctx context.Context, obj client.Object, opts ...client.DeleteOption) func() error {
 	return func() error {
-		select {
-		case <-h.Signals:
-			panic("Interrupted by User")
-		default:
-			return client.IgnoreNotFound(h.Client.Delete(h.Context, obj, opts...))
-		}
+		return client.IgnoreNotFound(h.Client.Delete(ctx, obj, opts...))
 	}
 }
 
-func (h *helper) DeleteAllOf(obj client.Object, opts ...client.DeleteAllOfOption) func() error {
+func (h *helper) DeleteAllOf(ctx context.Context, obj client.Object, opts ...client.DeleteAllOfOption) func() error {
 	return func() error {
-		select {
-		case <-h.Signals:
-			panic("Interrupted by User")
-		default:
-			return h.Client.DeleteAllOf(h.Context, obj, opts...)
-		}
+		return h.Client.DeleteAllOf(ctx, obj, opts...)
 	}
 }
 
-func (h *helper) Exec(pod *corev1.Pod, podExecOpts *corev1.PodExecOptions, timeout time.Duration, outWriter, errWriter io.Writer) (*PodSession, error) {
+func (h *helper) Exec(ctx context.Context, pod *corev1.Pod, command []string, container string, outWriter, errWriter io.Writer) (*PodSession, error) {
 	session := &PodSession{
 		Out:      gbytes.NewBuffer(),
 		Err:      gbytes.NewBuffer(),
@@ -182,26 +153,43 @@ func (h *helper) Exec(pod *corev1.Pod, podExecOpts *corev1.PodExecOptions, timeo
 		Stderr: commandErr,
 	}
 
+	podExecOpts := &corev1.PodExecOptions{
+		Stdout:    true,
+		Stderr:    true,
+		Stdin:     false,
+		TTY:       false,
+		Container: container,
+		Command:   command,
+	}
+
 	execReq := h.PodRestInterface.Post().
 		Resource("pods").
 		Name(pod.Name).
 		Namespace(pod.Namespace).
 		SubResource("exec").
-		Timeout(timeout).
+		//Timeout(timeout).
 		VersionedParams(podExecOpts, scheme.ParameterCodec)
 
-	// https://github.com/kubernetes/kubernetes/pull/103177
-	// update to cancel commands which timeout after this merges
+	// if context has a deadline add a timeout
+	// this can be removed after PR below merges
+	// NOTE not comptaible with https://pkg.go.dev/github.com/onsi/ginkgo/v2#SpecContext
+	if deadline, ok := ctx.Deadline(); ok {
+		execReq = execReq.Timeout(deadline.Sub(time.Now()))
+	}
+
 	executor, err := remotecommand.NewSPDYExecutor(h.Config, http.MethodPost, execReq.URL())
 	if err != nil {
-		return session, err
+		return nil, err
 	}
 
 	go func() {
+		// https://github.com/kubernetes/kubernetes/pull/103177
+		// update to make cancellable with ctx after this merges
 		err := executor.Stream(streamOpts)
 		session.Out.Close()
 		session.Err.Close()
 		if err != nil {
+			fmt.Fprintf(errWriter, err.Error())
 			if exitcode, ok := err.(k8sExec.CodeExitError); ok {
 				session.exitCode = exitcode.Code
 				return
@@ -211,27 +199,22 @@ func (h *helper) Exec(pod *corev1.Pod, podExecOpts *corev1.PodExecOptions, timeo
 		}
 		session.exitCode = 0
 	}()
-	return session, err
+	return session, nil
 }
 
 // Get gets the object from the API server.
-func (h *helper) Get(obj client.Object) func() error {
+func (h *helper) Get(ctx context.Context, obj client.Object) func() error {
 	return func() error {
-		select {
-		case <-h.Signals:
-			panic("Interrupted by User")
-		default:
-			return h.Client.Get(h.Context, client.ObjectKeyFromObject(obj), obj)
-		}
+		return h.Client.Get(ctx, client.ObjectKeyFromObject(obj), obj)
 	}
 }
 
-// List gets the list object from the API server.
-func (h *helper) Logs(pod *corev1.Pod, podLogOptions *corev1.PodLogOptions, outWriter io.Writer) (*PodSession, error) {
+// Log streams logs from a container
+func (h *helper) Logs(ctx context.Context, pod *corev1.Pod, podLogOptions *corev1.PodLogOptions, outWriter, errWriter io.Writer) (*PodSession, error) {
 	stream, err := h.Clientset.CoreV1().
 		Pods(pod.Namespace).
 		GetLogs(pod.Name, podLogOptions).
-		Stream(context.TODO())
+		Stream(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -252,6 +235,7 @@ func (h *helper) Logs(pod *corev1.Pod, podLogOptions *corev1.PodLogOptions, outW
 		defer stream.Close()
 		_, err := io.Copy(logOut, stream)
 		if err != nil {
+			fmt.Fprintf(errWriter, err.Error())
 			session.exitCode = 254
 			return
 		}
@@ -262,55 +246,38 @@ func (h *helper) Logs(pod *corev1.Pod, podLogOptions *corev1.PodLogOptions, outW
 }
 
 // List gets the list object from the API server.
-func (h *helper) List(obj client.ObjectList, listOptions ...client.ListOption) func() error {
+func (h *helper) List(ctx context.Context, obj client.ObjectList, listOptions ...client.ListOption) func() error {
 	return func() error {
-		select {
-		case <-h.Signals:
-			panic("Interrupted by User")
-		default:
-			return h.Client.List(h.Context, obj, listOptions...)
-		}
+		return h.Client.List(ctx, obj, listOptions...)
 	}
 }
 
-func (h *helper) Object(obj client.Object) func(g Gomega) client.Object {
+// Object gets and returns the object itself
+func (h *helper) Object(ctx context.Context, obj client.Object) func(Gomega) client.Object {
 	return func(g Gomega) client.Object {
-		select {
-		case <-h.Signals:
-			panic("Interrupted by User")
-		default:
-			g.Expect(h.Client.Get(h.Context, client.ObjectKeyFromObject(obj), obj)).Should(Succeed())
-			return obj
-		}
+		g.Expect(h.Client.Get(ctx, client.ObjectKeyFromObject(obj), obj)).Should(Succeed())
+		return obj
 	}
 }
 
-func (h *helper) Objects(obj client.ObjectList, listOptions ...client.ListOption) func(g Gomega) client.ObjectList {
+// Objects gets a list of objects
+func (h *helper) Objects(ctx context.Context, obj client.ObjectList, listOptions ...client.ListOption) func(Gomega) client.ObjectList {
 	return func(g Gomega) client.ObjectList {
-		select {
-		case <-h.Signals:
-			panic("Interrupted by User")
-		default:
-			g.Expect(h.Client.List(h.Context, obj, listOptions...)).Should(Succeed())
-			return obj
-		}
+		g.Expect(h.Client.List(ctx, obj, listOptions...)).Should(Succeed())
+		return obj
 	}
 }
 
-func (h *helper) Patch(obj client.Object, patch client.Patch, opts ...client.PatchOption) func(g Gomega) error {
-	key := client.ObjectKeyFromObject(obj)
+// Patch patches an object
+func (h *helper) Patch(ctx context.Context, obj client.Object, patch client.Patch, opts ...client.PatchOption) func(Gomega) error {
 	return func(g Gomega) error {
-		select {
-		case <-h.Signals:
-			panic("Interrupted by User")
-		default:
-			g.Expect(h.Client.Get(h.Context, key, obj)).Should(Succeed())
-			return h.Client.Patch(h.Context, obj, patch, opts...)
-		}
+		g.Expect(h.Client.Get(ctx, client.ObjectKeyFromObject(obj), obj)).Should(Succeed())
+		return h.Client.Patch(ctx, obj, patch, opts...)
 	}
 }
 
-func (h *helper) PortForward(obj client.Object, ports []string, outWriter, errWriter io.Writer) (*portforward.PortForwarder, error) {
+// PortForward opens a pesistent portforwarding session, must be closed by user
+func (h *helper) PortForward(ctx context.Context, obj client.Object, ports []string, outWriter, errWriter io.Writer) (*portforward.PortForwarder, error) {
 	var path string
 	switch obj.(type) {
 	case *corev1.Pod:
@@ -351,14 +318,15 @@ func (h *helper) PortForward(obj client.Object, ports []string, outWriter, errWr
 		return pf, nil
 	case <-stopCh:
 		return nil, err
-	case <-h.Signals:
-		panic("Interrupted by User")
+	case <-ctx.Done():
+		pf.Close()
+		return nil, nil
 	}
 }
 
 // ProxyGet will perform a HTTP GET on the specified pod or service via
 // Kubernetes proxy
-func (h *helper) ProxyGet(obj client.Object, scheme, port, path string, params map[string]string, outWriter io.Writer) (*PodSession, error) {
+func (h *helper) ProxyGet(ctx context.Context, obj client.Object, scheme, port, path string, params map[string]string, outWriter, errWriter io.Writer) (*PodSession, error) {
 	var stream io.ReadCloser
 	var err error
 
@@ -366,11 +334,11 @@ func (h *helper) ProxyGet(obj client.Object, scheme, port, path string, params m
 	case *corev1.Pod:
 		stream, err = h.Clientset.CoreV1().
 			Pods(obj.GetNamespace()).ProxyGet(scheme, obj.GetName(), port, path, params).
-			Stream(context.TODO())
+			Stream(ctx)
 	case *corev1.Service:
 		stream, err = h.Clientset.CoreV1().
 			Services(obj.GetNamespace()).ProxyGet(scheme, obj.GetName(), port, path, params).
-			Stream(context.TODO())
+			Stream(ctx)
 	default:
 		return nil, fmt.Errorf("expected a Pod or Service, got %T", obj)
 	}
@@ -394,6 +362,7 @@ func (h *helper) ProxyGet(obj client.Object, scheme, port, path string, params m
 		defer stream.Close()
 		_, err := io.Copy(logOut, stream)
 		if err != nil {
+			fmt.Fprintf(errWriter, err.Error())
 			session.exitCode = 254
 			return
 		}
@@ -403,31 +372,19 @@ func (h *helper) ProxyGet(obj client.Object, scheme, port, path string, params m
 	return session, nil
 }
 
-func (h *helper) Update(obj client.Object, f controllerutil.MutateFn, opts ...client.UpdateOption) func(g Gomega) error {
-	key := client.ObjectKeyFromObject(obj)
+func (h *helper) Update(ctx context.Context, obj client.Object, f controllerutil.MutateFn, opts ...client.UpdateOption) func(Gomega) error {
 	return func(g Gomega) error {
-		select {
-		case <-h.Signals:
-			panic("Interrupted by User")
-		default:
-			g.Expect(h.Client.Get(h.Context, key, obj)).Should(Succeed())
-			g.Expect(mutate(f, key, obj)).Should(Succeed())
-			return h.Client.Update(h.Context, obj, opts...)
-		}
+		g.Expect(h.Client.Get(ctx, client.ObjectKeyFromObject(obj), obj)).Should(Succeed())
+		g.Expect(mutate(f, client.ObjectKeyFromObject(obj), obj)).Should(Succeed())
+		return h.Client.Update(ctx, obj, opts...)
 	}
 }
 
-func (h *helper) UpdateStatus(obj client.Object, f controllerutil.MutateFn, opts ...client.UpdateOption) func(g Gomega) error {
-	key := client.ObjectKeyFromObject(obj)
+func (h *helper) UpdateStatus(ctx context.Context, obj client.Object, f controllerutil.MutateFn, opts ...client.UpdateOption) func(Gomega) error {
 	return func(g Gomega) error {
-		select {
-		case <-h.Signals:
-			panic("Interrupted by User")
-		default:
-			g.Expect(h.Client.Get(h.Context, key, obj)).Should(Succeed())
-			g.Expect(mutate(f, key, obj)).Should(Succeed())
-			return h.Client.Status().Update(h.Context, obj, opts...)
-		}
+		g.Expect(h.Client.Get(ctx, client.ObjectKeyFromObject(obj), obj)).Should(Succeed())
+		g.Expect(mutate(f, client.ObjectKeyFromObject(obj), obj)).Should(Succeed())
+		return h.Client.Status().Update(ctx, obj, opts...)
 	}
 }
 

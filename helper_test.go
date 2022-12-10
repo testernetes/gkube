@@ -1,14 +1,12 @@
 package gkube
 
 import (
-	"context"
 	"fmt"
 	"io"
 	"log"
 	"net/http"
 	"time"
 
-	certmgr "github.com/jetstack/cert-manager/pkg/api"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	. "github.com/onsi/gomega/gbytes"
@@ -30,14 +28,16 @@ var _ = Describe("KubernetesHelper", func() {
 			Expect(k8s.Config).ShouldNot(BeNil())
 			Expect(k8s.Client).ShouldNot(BeNil())
 			Expect(k8s.Scheme).ShouldNot(BeNil())
-			Expect(k8s.Context).ShouldNot(BeNil())
 			Expect(k8s.PodRestInterface).ShouldNot(BeNil())
 		})
 	}
 
+	log.SetOutput(GinkgoWriter)
+	SetDefaultEventuallyTimeout(time.Minute)
+	SetDefaultEventuallyPollingInterval(time.Second)
+
 	JustBeforeEach(func() {
 		k8s = newKubernetesHelper(opts...)
-		log.SetOutput(GinkgoWriter)
 	})
 
 	When("proxying traffic from a pod or service", func() {
@@ -68,25 +68,25 @@ var _ = Describe("KubernetesHelper", func() {
 			}
 		})
 
-		It("should get a response from the container via k8s proxy", func() {
-			Eventually(k8s.Create(pod)).Should(Succeed())
-			Eventually(k8s.Object(pod)).WithTimeout(time.Minute).Should(HaveJSONPath(
+		It("should get a response from the container via k8s proxy", func(ctx SpecContext) {
+			Eventually(k8s.Create(ctx, pod)).Should(Succeed())
+			Eventually(k8s.Object(ctx, pod)).Should(HaveJSONPath(
 				`{.status.phase}`, Equal(corev1.PodPhase(corev1.PodRunning))))
 
-			session, err := k8s.ProxyGet(pod, "http", "8080", "/", nil, GinkgoWriter)
+			session, err := k8s.ProxyGet(ctx, pod, "http", "8080", "/", nil, GinkgoWriter, GinkgoWriter)
 			Expect(err).ShouldNot(HaveOccurred())
 
-			Eventually(session).WithTimeout(time.Minute).Should(Exit())
+			Eventually(session).Should(Exit())
 			Eventually(session.Out).Should(Say("helloworld"))
-		})
+		}, SpecTimeout(time.Minute))
 
-		It("should get a response from the container via k8s portforward", func() {
+		It("should get a response from the container via k8s portforward", func(ctx SpecContext) {
 			pod.Name = "hello2"
-			Eventually(k8s.Create(pod)).Should(Succeed())
-			Eventually(k8s.Object(pod)).WithTimeout(time.Minute).Should(HaveJSONPath(
+			Eventually(k8s.Create(ctx, pod)).Should(Succeed())
+			Eventually(k8s.Object(ctx, pod)).Should(HaveJSONPath(
 				`{.status.phase}`, Equal(corev1.PodPhase(corev1.PodRunning))))
 
-			pf, err := k8s.PortForward(pod, []string{"0:8080"}, GinkgoWriter, GinkgoWriter)
+			pf, err := k8s.PortForward(ctx, pod, []string{"0:8080"}, GinkgoWriter, GinkgoWriter)
 			Expect(err).ShouldNot(HaveOccurred())
 			defer pf.Close()
 
@@ -101,10 +101,11 @@ var _ = Describe("KubernetesHelper", func() {
 			Expect(err).ShouldNot(HaveOccurred())
 			Expect(body).Should(BeEquivalentTo("helloworld"))
 
-		})
-		AfterEach(func() {
-			Eventually(k8s.Delete(pod, GracePeriodSeconds(0))).Should(Succeed())
-		})
+		}, SpecTimeout(time.Minute))
+
+		AfterEach(func(ctx SpecContext) {
+			Eventually(k8s.Delete(ctx, pod, GracePeriodSeconds(0))).Should(Succeed())
+		}, NodeTimeout(time.Minute))
 	})
 
 	When("streaming logs from a pod", func() {
@@ -128,23 +129,25 @@ var _ = Describe("KubernetesHelper", func() {
 				},
 			}
 		})
-		It("should run the given command in the container", func() {
-			Eventually(k8s.Create(pod)).Should(Succeed())
-			Eventually(k8s.Object(pod)).WithTimeout(time.Minute).Should(HaveJSONPath(
+
+		It("should run the given command in the container", func(ctx SpecContext) {
+			Eventually(k8s.Create(ctx, pod)).Should(Succeed())
+			Eventually(k8s.Object(ctx, pod)).Should(HaveJSONPath(
 				`{.status.phase}`, BeEquivalentTo(corev1.PodSucceeded)))
 
 			logOpts := &corev1.PodLogOptions{
 				Container: pod.Spec.Containers[0].Name,
 			}
-			session, err := k8s.Logs(pod, logOpts, GinkgoWriter)
+			session, err := k8s.Logs(ctx, pod, logOpts, GinkgoWriter, GinkgoWriter)
 			Expect(err).ShouldNot(HaveOccurred())
 
-			Eventually(session).WithTimeout(time.Minute).Should(Exit())
+			Eventually(session).Should(Exit())
 			Eventually(session.Out).Should(Say("helloworld"))
-		})
-		AfterEach(func() {
-			Eventually(k8s.Delete(pod, GracePeriodSeconds(0))).Should(Succeed())
-		})
+		}, SpecTimeout(9*time.Second))
+
+		AfterEach(func(ctx SpecContext) {
+			Eventually(k8s.Delete(ctx, pod, GracePeriodSeconds(0))).Should(Succeed())
+		}, NodeTimeout(time.Minute))
 	})
 
 	When("execing in a pod", func() {
@@ -167,25 +170,21 @@ var _ = Describe("KubernetesHelper", func() {
 				},
 			}
 		})
-		It("should run the given command in the container", func() {
-			Eventually(k8s.Create(pod)).Should(Succeed())
-			Eventually(k8s.Object(pod)).WithTimeout(time.Minute).Should(HaveJSONPath(
+		It("should run the given command in the container", func(ctx SpecContext) {
+			Eventually(k8s.Create(ctx, pod)).Should(Succeed())
+			Eventually(k8s.Object(ctx, pod)).WithTimeout(time.Minute).Should(HaveJSONPath(
 				`{.status.phase}`, BeEquivalentTo(corev1.PodRunning)))
-			execOpts := &corev1.PodExecOptions{
-				Container: pod.Spec.Containers[0].Name,
-				Command:   []string{"/bin/sh", "-c", "echo hellopod"},
-				Stdout:    true,
-				Stderr:    true,
-			}
-			session, err := k8s.Exec(pod, execOpts, time.Minute, GinkgoWriter, GinkgoWriter)
+
+			session, err := k8s.Exec(ctx, pod, []string{"/bin/sh", "-c", "echo hellopod"}, "test", GinkgoWriter, GinkgoWriter)
 			Expect(err).ShouldNot(HaveOccurred())
 
 			Eventually(session).WithTimeout(time.Minute).Should(Exit())
 			Eventually(session).Should(Say("hellopod"))
-		})
-		AfterEach(func() {
-			Eventually(k8s.Delete(pod, GracePeriodSeconds(0))).Should(Succeed())
-		})
+		}, SpecTimeout(time.Minute))
+
+		AfterEach(func(ctx SpecContext) {
+			Eventually(k8s.Delete(ctx, pod, GracePeriodSeconds(0))).Should(Succeed())
+		}, NodeTimeout(time.Minute))
 	})
 
 	When("creating a valid helper", func() {
@@ -208,26 +207,13 @@ var _ = Describe("KubernetesHelper", func() {
 		Context("with a custom scheme", func() {
 			var s *runtime.Scheme
 			BeforeEach(func() {
-				s = certmgr.Scheme
+				s = runtime.NewScheme()
 				opts = append(opts, WithScheme(s))
 			})
 
 			AssertHelperNotNil()
 			It("should use it", func() {
 				Expect(k8s.Scheme).Should(Equal(s))
-			})
-		})
-
-		Context("with a custom context", func() {
-			var c context.Context
-			BeforeEach(func() {
-				c = context.WithValue(context.TODO(), "", "")
-				opts = append(opts, WithContext(c))
-			})
-
-			AssertHelperNotNil()
-			It("should use it", func() {
-				Expect(k8s.Context).Should(Equal(c))
 			})
 		})
 

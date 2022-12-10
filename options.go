@@ -1,8 +1,6 @@
 package gkube
 
 import (
-	"context"
-
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/rest"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -55,17 +53,4 @@ type k8sScheme struct {
 
 func (s k8sScheme) ApplyToHelper(opts *helper) {
 	opts.Scheme = s.Scheme
-}
-
-// Context Option
-func WithContext(c context.Context) k8sContext {
-	return k8sContext{c}
-}
-
-type k8sContext struct {
-	context.Context
-}
-
-func (c k8sContext) ApplyToHelper(opts *helper) {
-	opts.Context = c.Context
 }
