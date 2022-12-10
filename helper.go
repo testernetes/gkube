@@ -55,7 +55,7 @@ type KubernetesHelper interface {
 	Update(context.Context, client.Object, controllerutil.MutateFn, ...client.UpdateOption) func(Gomega) error
 	UpdateStatus(context.Context, client.Object, controllerutil.MutateFn, ...client.UpdateOption) func(Gomega) error
 
-	Exec(context.Context, *corev1.Pod, []string, string, io.Writer, io.Writer) (*PodSession, error)
+	Exec(context.Context, *corev1.Pod, string, []string, io.Writer, io.Writer) (*PodSession, error)
 	Logs(context.Context, *corev1.Pod, *corev1.PodLogOptions, io.Writer, io.Writer) (*PodSession, error)
 	PortForward(context.Context, client.Object, []string, io.Writer, io.Writer) (*portforward.PortForwarder, error)
 	ProxyGet(context.Context, client.Object, string, string, string, map[string]string, io.Writer, io.Writer) (*PodSession, error)
@@ -128,7 +128,7 @@ func (h *helper) DeleteAllOf(ctx context.Context, obj client.Object, opts ...cli
 	}
 }
 
-func (h *helper) Exec(ctx context.Context, pod *corev1.Pod, command []string, container string, outWriter, errWriter io.Writer) (*PodSession, error) {
+func (h *helper) Exec(ctx context.Context, pod *corev1.Pod, container string, command []string, outWriter, errWriter io.Writer) (*PodSession, error) {
 	session := &PodSession{
 		Out:      gbytes.NewBuffer(),
 		Err:      gbytes.NewBuffer(),
