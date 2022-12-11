@@ -44,16 +44,16 @@ type (
 )
 
 type KubernetesHelper interface {
-	Create(context.Context, client.Object, ...client.CreateOption) func() error
-	Delete(context.Context, client.Object, ...client.DeleteOption) func() error
-	DeleteAllOf(context.Context, client.Object, ...client.DeleteAllOfOption) func() error
-	Get(context.Context, client.Object) func() error
-	List(context.Context, client.ObjectList, ...client.ListOption) func() error
-	Object(context.Context, client.Object) func(Gomega) client.Object
-	Objects(context.Context, client.ObjectList, ...client.ListOption) func(Gomega) client.ObjectList
-	Patch(context.Context, client.Object, client.Patch, ...client.PatchOption) func(Gomega) error
-	Update(context.Context, client.Object, controllerutil.MutateFn, ...client.UpdateOption) func(Gomega) error
-	UpdateStatus(context.Context, client.Object, controllerutil.MutateFn, ...client.UpdateOption) func(Gomega) error
+	Create(context.Context, client.Object, ...client.CreateOption) error
+	Delete(context.Context, client.Object, ...client.DeleteOption) error
+	DeleteAllOf(context.Context, client.Object, ...client.DeleteAllOfOption) error
+	Get(context.Context, client.Object) error
+	List(context.Context, client.ObjectList, ...client.ListOption) error
+	Object(Gomega, context.Context, client.Object) client.Object
+	Objects(Gomega, context.Context, client.ObjectList, ...client.ListOption) client.ObjectList
+	Patch(Gomega, context.Context, client.Object, client.Patch, ...client.PatchOption) error
+	Update(Gomega, context.Context, client.Object, controllerutil.MutateFn, ...client.UpdateOption) error
+	UpdateStatus(Gomega, context.Context, client.Object, controllerutil.MutateFn, ...client.UpdateOption) error
 
 	Exec(context.Context, *corev1.Pod, string, []string, io.Writer, io.Writer) (*PodSession, error)
 	Logs(context.Context, *corev1.Pod, *corev1.PodLogOptions, io.Writer, io.Writer) (*PodSession, error)
@@ -110,22 +110,16 @@ func newKubernetesHelper(opts ...HelperOption) *helper {
 	return helper
 }
 
-func (h *helper) Create(ctx context.Context, obj client.Object, opts ...client.CreateOption) func() error {
-	return func() error {
-		return h.Client.Create(ctx, obj, opts...)
-	}
+func (h *helper) Create(ctx context.Context, obj client.Object, opts ...client.CreateOption) error {
+	return h.Client.Create(ctx, obj, opts...)
 }
 
-func (h *helper) Delete(ctx context.Context, obj client.Object, opts ...client.DeleteOption) func() error {
-	return func() error {
-		return client.IgnoreNotFound(h.Client.Delete(ctx, obj, opts...))
-	}
+func (h *helper) Delete(ctx context.Context, obj client.Object, opts ...client.DeleteOption) error {
+	return client.IgnoreNotFound(h.Client.Delete(ctx, obj, opts...))
 }
 
-func (h *helper) DeleteAllOf(ctx context.Context, obj client.Object, opts ...client.DeleteAllOfOption) func() error {
-	return func() error {
-		return h.Client.DeleteAllOf(ctx, obj, opts...)
-	}
+func (h *helper) DeleteAllOf(ctx context.Context, obj client.Object, opts ...client.DeleteAllOfOption) error {
+	return h.Client.DeleteAllOf(ctx, obj, opts...)
 }
 
 func (h *helper) Exec(ctx context.Context, pod *corev1.Pod, container string, command []string, outWriter, errWriter io.Writer) (*PodSession, error) {
@@ -203,10 +197,8 @@ func (h *helper) Exec(ctx context.Context, pod *corev1.Pod, container string, co
 }
 
 // Get gets the object from the API server.
-func (h *helper) Get(ctx context.Context, obj client.Object) func() error {
-	return func() error {
-		return h.Client.Get(ctx, client.ObjectKeyFromObject(obj), obj)
-	}
+func (h *helper) Get(ctx context.Context, obj client.Object) error {
+	return h.Client.Get(ctx, client.ObjectKeyFromObject(obj), obj)
 }
 
 // Log streams logs from a container
@@ -246,34 +238,26 @@ func (h *helper) Logs(ctx context.Context, pod *corev1.Pod, podLogOptions *corev
 }
 
 // List gets the list object from the API server.
-func (h *helper) List(ctx context.Context, obj client.ObjectList, listOptions ...client.ListOption) func() error {
-	return func() error {
-		return h.Client.List(ctx, obj, listOptions...)
-	}
+func (h *helper) List(ctx context.Context, obj client.ObjectList, listOptions ...client.ListOption) error {
+	return h.Client.List(ctx, obj, listOptions...)
 }
 
 // Object gets and returns the object itself
-func (h *helper) Object(ctx context.Context, obj client.Object) func(Gomega) client.Object {
-	return func(g Gomega) client.Object {
-		g.Expect(h.Client.Get(ctx, client.ObjectKeyFromObject(obj), obj)).Should(Succeed())
-		return obj
-	}
+func (h *helper) Object(g Gomega, ctx context.Context, obj client.Object) client.Object {
+	g.Expect(h.Client.Get(ctx, client.ObjectKeyFromObject(obj), obj)).Should(Succeed())
+	return obj
 }
 
 // Objects gets a list of objects
-func (h *helper) Objects(ctx context.Context, obj client.ObjectList, listOptions ...client.ListOption) func(Gomega) client.ObjectList {
-	return func(g Gomega) client.ObjectList {
-		g.Expect(h.Client.List(ctx, obj, listOptions...)).Should(Succeed())
-		return obj
-	}
+func (h *helper) Objects(g Gomega, ctx context.Context, obj client.ObjectList, listOptions ...client.ListOption) client.ObjectList {
+	g.Expect(h.Client.List(ctx, obj, listOptions...)).Should(Succeed())
+	return obj
 }
 
 // Patch patches an object
-func (h *helper) Patch(ctx context.Context, obj client.Object, patch client.Patch, opts ...client.PatchOption) func(Gomega) error {
-	return func(g Gomega) error {
-		g.Expect(h.Client.Get(ctx, client.ObjectKeyFromObject(obj), obj)).Should(Succeed())
-		return h.Client.Patch(ctx, obj, patch, opts...)
-	}
+func (h *helper) Patch(g Gomega, ctx context.Context, obj client.Object, patch client.Patch, opts ...client.PatchOption) error {
+	g.Expect(h.Client.Get(ctx, client.ObjectKeyFromObject(obj), obj)).Should(Succeed())
+	return h.Client.Patch(ctx, obj, patch, opts...)
 }
 
 // PortForward opens a pesistent portforwarding session, must be closed by user
@@ -372,20 +356,16 @@ func (h *helper) ProxyGet(ctx context.Context, obj client.Object, scheme, port, 
 	return session, nil
 }
 
-func (h *helper) Update(ctx context.Context, obj client.Object, f controllerutil.MutateFn, opts ...client.UpdateOption) func(Gomega) error {
-	return func(g Gomega) error {
-		g.Expect(h.Client.Get(ctx, client.ObjectKeyFromObject(obj), obj)).Should(Succeed())
-		g.Expect(mutate(f, client.ObjectKeyFromObject(obj), obj)).Should(Succeed())
-		return h.Client.Update(ctx, obj, opts...)
-	}
+func (h *helper) Update(g Gomega, ctx context.Context, obj client.Object, f controllerutil.MutateFn, opts ...client.UpdateOption) error {
+	g.Expect(h.Client.Get(ctx, client.ObjectKeyFromObject(obj), obj)).Should(Succeed())
+	g.Expect(mutate(f, client.ObjectKeyFromObject(obj), obj)).Should(Succeed())
+	return h.Client.Update(ctx, obj, opts...)
 }
 
-func (h *helper) UpdateStatus(ctx context.Context, obj client.Object, f controllerutil.MutateFn, opts ...client.UpdateOption) func(Gomega) error {
-	return func(g Gomega) error {
-		g.Expect(h.Client.Get(ctx, client.ObjectKeyFromObject(obj), obj)).Should(Succeed())
-		g.Expect(mutate(f, client.ObjectKeyFromObject(obj), obj)).Should(Succeed())
-		return h.Client.Status().Update(ctx, obj, opts...)
-	}
+func (h *helper) UpdateStatus(g Gomega, ctx context.Context, obj client.Object, f controllerutil.MutateFn, opts ...client.UpdateOption) error {
+	g.Expect(h.Client.Get(ctx, client.ObjectKeyFromObject(obj), obj)).Should(Succeed())
+	g.Expect(mutate(f, client.ObjectKeyFromObject(obj), obj)).Should(Succeed())
+	return h.Client.Status().Update(ctx, obj, opts...)
 }
 
 // mutate wraps a MutateFn and applies validation to its result.
