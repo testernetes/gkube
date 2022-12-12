@@ -13,6 +13,8 @@ import (
 	. "github.com/onsi/gomega"
 	"github.com/onsi/gomega/gbytes"
 	corev1 "k8s.io/api/core/v1"
+	policyv1 "k8s.io/api/policy/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/runtime/serializer"
@@ -57,6 +59,7 @@ type KubernetesHelper interface {
 	UpdateStatus(Gomega, context.Context, client.Object, controllerutil.MutateFn, ...client.UpdateOption) error
 
 	// Pod Extension
+	Evict(context.Context, *corev1.Pod, ...client.DeleteOption) error
 	Exec(context.Context, *corev1.Pod, string, []string, io.Writer, io.Writer) (*PodSession, error)
 	Logs(context.Context, *corev1.Pod, *corev1.PodLogOptions, io.Writer, io.Writer) (*PodSession, error)
 	PortForward(context.Context, *corev1.Pod, []string, io.Writer, io.Writer) (*portforward.PortForwarder, error)
@@ -123,6 +126,19 @@ func (h *helper) Delete(ctx context.Context, obj client.Object, opts ...client.D
 
 func (h *helper) DeleteAllOf(ctx context.Context, obj client.Object, opts ...client.DeleteAllOfOption) error {
 	return h.Client.DeleteAllOf(ctx, obj, opts...)
+}
+
+func (h *helper) Evict(ctx context.Context, pod *corev1.Pod, opts ...client.DeleteOption) error {
+	deleteOptions := &client.DeleteOptions{}
+	for _, deleteOption := range opts {
+		deleteOption.ApplyToDelete(deleteOptions)
+	}
+	return h.Clientset.CoreV1().Pods(pod.GetNamespace()).EvictV1(ctx, &policyv1.Eviction{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: pod.GetName(),
+		},
+		DeleteOptions: deleteOptions.AsDeleteOptions(),
+	})
 }
 
 func (h *helper) Exec(ctx context.Context, pod *corev1.Pod, container string, command []string, outWriter, errWriter io.Writer) (*PodSession, error) {

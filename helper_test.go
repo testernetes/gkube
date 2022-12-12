@@ -150,7 +150,7 @@ var _ = Describe("KubernetesHelper", func() {
 		}, NodeTimeout(time.Minute))
 	})
 
-	When("execing in a pod", func() {
+	When("running a basic pod", func() {
 		var pod *corev1.Pod
 		BeforeEach(func() {
 			pod = &corev1.Pod{
@@ -180,6 +180,15 @@ var _ = Describe("KubernetesHelper", func() {
 
 			Eventually(session).WithTimeout(time.Minute).Should(Exit())
 			Eventually(session).Should(Say("hellopod"))
+		}, SpecTimeout(time.Minute))
+
+		It("should evict the pod", func(ctx SpecContext) {
+			Eventually(k8s.Create).WithContext(ctx).WithArguments(pod).Should(Succeed())
+			Eventually(k8s.Object).WithContext(ctx).WithArguments(pod).Should(HaveJSONPath(
+				`{.status.phase}`, BeEquivalentTo(corev1.PodRunning)))
+
+			Eventually(k8s.Evict).WithContext(ctx).WithArguments(pod).Should(Succeed())
+			Eventually(k8s.Get).WithContext(ctx).WithArguments(pod).ShouldNot(Succeed())
 		}, SpecTimeout(time.Minute))
 
 		AfterEach(func(ctx SpecContext) {
