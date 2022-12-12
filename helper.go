@@ -49,15 +49,18 @@ type KubernetesHelper interface {
 	DeleteAllOf(context.Context, client.Object, ...client.DeleteAllOfOption) error
 	Get(context.Context, client.Object) error
 	List(context.Context, client.ObjectList, ...client.ListOption) error
+
 	Object(Gomega, context.Context, client.Object) client.Object
 	Objects(Gomega, context.Context, client.ObjectList, ...client.ListOption) client.ObjectList
 	Patch(Gomega, context.Context, client.Object, client.Patch, ...client.PatchOption) error
 	Update(Gomega, context.Context, client.Object, controllerutil.MutateFn, ...client.UpdateOption) error
 	UpdateStatus(Gomega, context.Context, client.Object, controllerutil.MutateFn, ...client.UpdateOption) error
 
+	// Pod Extension
 	Exec(context.Context, *corev1.Pod, string, []string, io.Writer, io.Writer) (*PodSession, error)
 	Logs(context.Context, *corev1.Pod, *corev1.PodLogOptions, io.Writer, io.Writer) (*PodSession, error)
-	PortForward(context.Context, client.Object, []string, io.Writer, io.Writer) (*portforward.PortForwarder, error)
+	PortForward(context.Context, *corev1.Pod, []string, io.Writer, io.Writer) (*portforward.PortForwarder, error)
+
 	ProxyGet(context.Context, client.Object, string, string, string, map[string]string, io.Writer, io.Writer) (*PodSession, error)
 }
 
@@ -261,17 +264,8 @@ func (h *helper) Patch(g Gomega, ctx context.Context, obj client.Object, patch c
 }
 
 // PortForward opens a pesistent portforwarding session, must be closed by user
-func (h *helper) PortForward(ctx context.Context, obj client.Object, ports []string, outWriter, errWriter io.Writer) (*portforward.PortForwarder, error) {
-	var path string
-	switch obj.(type) {
-	case *corev1.Pod:
-		path = fmt.Sprintf("/api/v1/namespaces/%s/pods/%s/portforward", obj.GetNamespace(), obj.GetName())
-	case *corev1.Service:
-		path = fmt.Sprintf("/api/v1/namespaces/%s/services/%s/portforward", obj.GetNamespace(), obj.GetName())
-	default:
-		return nil, fmt.Errorf("expected a Pod or Service, got %T", obj)
-	}
-
+func (h *helper) PortForward(ctx context.Context, pod *corev1.Pod, ports []string, outWriter, errWriter io.Writer) (*portforward.PortForwarder, error) {
+	path := fmt.Sprintf("/api/v1/namespaces/%s/pods/%s/portforward", pod.GetNamespace(), pod.GetName())
 	hostIP := strings.TrimLeft(h.Config.Host, "htps:/")
 	serverURL := url.URL{Scheme: "https", Path: path, Host: hostIP}
 
