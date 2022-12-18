@@ -14,6 +14,7 @@ import (
 	"github.com/onsi/gomega/gbytes"
 	corev1 "k8s.io/api/core/v1"
 	policyv1 "k8s.io/api/policy/v1"
+	k8sErrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -56,7 +57,7 @@ type KubernetesHelper interface {
 	Objects(Gomega, context.Context, client.ObjectList, ...client.ListOption) client.ObjectList
 	Patch(Gomega, context.Context, client.Object, client.Patch, ...client.PatchOption) error
 	Update(Gomega, context.Context, client.Object, controllerutil.MutateFn, ...client.UpdateOption) error
-	UpdateStatus(Gomega, context.Context, client.Object, controllerutil.MutateFn, ...client.UpdateOption) error
+	UpdateStatus(Gomega, context.Context, client.Object, controllerutil.MutateFn, ...client.SubResourceUpdateOption) error
 
 	// Pod Extension
 	Evict(context.Context, *corev1.Pod, ...client.DeleteOption) error
@@ -117,15 +118,15 @@ func newKubernetesHelper(opts ...HelperOption) *helper {
 }
 
 func (h *helper) Create(ctx context.Context, obj client.Object, opts ...client.CreateOption) error {
-	return h.Client.Create(ctx, obj, opts...)
+	return handleError(h.Client.Create(ctx, obj, opts...))
 }
 
 func (h *helper) Delete(ctx context.Context, obj client.Object, opts ...client.DeleteOption) error {
-	return client.IgnoreNotFound(h.Client.Delete(ctx, obj, opts...))
+	return handleError(client.IgnoreNotFound(h.Client.Delete(ctx, obj, opts...)))
 }
 
 func (h *helper) DeleteAllOf(ctx context.Context, obj client.Object, opts ...client.DeleteAllOfOption) error {
-	return h.Client.DeleteAllOf(ctx, obj, opts...)
+	return handleError(h.Client.DeleteAllOf(ctx, obj, opts...))
 }
 
 func (h *helper) Evict(ctx context.Context, pod *corev1.Pod, opts ...client.DeleteOption) error {
@@ -133,12 +134,13 @@ func (h *helper) Evict(ctx context.Context, pod *corev1.Pod, opts ...client.Dele
 	for _, deleteOption := range opts {
 		deleteOption.ApplyToDelete(deleteOptions)
 	}
-	return h.Clientset.CoreV1().Pods(pod.GetNamespace()).EvictV1(ctx, &policyv1.Eviction{
+
+	return handleError(h.Client.SubResource("eviction").Create(ctx, pod, &policyv1.Eviction{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: pod.GetName(),
 		},
 		DeleteOptions: deleteOptions.AsDeleteOptions(),
-	})
+	}))
 }
 
 func (h *helper) Exec(ctx context.Context, pod *corev1.Pod, container string, command []string, outWriter, errWriter io.Writer) (*PodSession, error) {
@@ -217,7 +219,7 @@ func (h *helper) Exec(ctx context.Context, pod *corev1.Pod, container string, co
 
 // Get gets the object from the API server.
 func (h *helper) Get(ctx context.Context, obj client.Object) error {
-	return h.Client.Get(ctx, client.ObjectKeyFromObject(obj), obj)
+	return handleError(h.Client.Get(ctx, client.ObjectKeyFromObject(obj), obj))
 }
 
 // Log streams logs from a container
@@ -258,25 +260,25 @@ func (h *helper) Logs(ctx context.Context, pod *corev1.Pod, podLogOptions *corev
 
 // List gets the list object from the API server.
 func (h *helper) List(ctx context.Context, obj client.ObjectList, listOptions ...client.ListOption) error {
-	return h.Client.List(ctx, obj, listOptions...)
+	return handleError(h.Client.List(ctx, obj, listOptions...))
 }
 
 // Object gets and returns the object itself
 func (h *helper) Object(g Gomega, ctx context.Context, obj client.Object) client.Object {
-	g.Expect(h.Client.Get(ctx, client.ObjectKeyFromObject(obj), obj)).Should(Succeed())
+	g.Expect(handleError(h.Client.Get(ctx, client.ObjectKeyFromObject(obj), obj))).Should(Succeed())
 	return obj
 }
 
 // Objects gets a list of objects
 func (h *helper) Objects(g Gomega, ctx context.Context, obj client.ObjectList, listOptions ...client.ListOption) client.ObjectList {
-	g.Expect(h.Client.List(ctx, obj, listOptions...)).Should(Succeed())
+	g.Expect(handleError(h.Client.List(ctx, obj, listOptions...))).Should(Succeed())
 	return obj
 }
 
 // Patch patches an object
 func (h *helper) Patch(g Gomega, ctx context.Context, obj client.Object, patch client.Patch, opts ...client.PatchOption) error {
-	g.Expect(h.Client.Get(ctx, client.ObjectKeyFromObject(obj), obj)).Should(Succeed())
-	return h.Client.Patch(ctx, obj, patch, opts...)
+	g.Expect(handleError(h.Client.Get(ctx, client.ObjectKeyFromObject(obj), obj))).Should(Succeed())
+	return handleError(h.Client.Patch(ctx, obj, patch, opts...))
 }
 
 // PortForward opens a pesistent portforwarding session, must be closed by user
@@ -367,15 +369,15 @@ func (h *helper) ProxyGet(ctx context.Context, obj client.Object, scheme, port, 
 }
 
 func (h *helper) Update(g Gomega, ctx context.Context, obj client.Object, f controllerutil.MutateFn, opts ...client.UpdateOption) error {
-	g.Expect(h.Client.Get(ctx, client.ObjectKeyFromObject(obj), obj)).Should(Succeed())
+	g.Expect(handleError(h.Client.Get(ctx, client.ObjectKeyFromObject(obj), obj))).Should(Succeed())
 	g.Expect(mutate(f, client.ObjectKeyFromObject(obj), obj)).Should(Succeed())
-	return h.Client.Update(ctx, obj, opts...)
+	return handleError(h.Client.Update(ctx, obj, opts...))
 }
 
-func (h *helper) UpdateStatus(g Gomega, ctx context.Context, obj client.Object, f controllerutil.MutateFn, opts ...client.UpdateOption) error {
-	g.Expect(h.Client.Get(ctx, client.ObjectKeyFromObject(obj), obj)).Should(Succeed())
+func (h *helper) UpdateStatus(g Gomega, ctx context.Context, obj client.Object, f controllerutil.MutateFn, opts ...client.SubResourceUpdateOption) error {
+	g.Expect(handleError(h.Client.Get(ctx, client.ObjectKeyFromObject(obj), obj))).Should(Succeed())
 	g.Expect(mutate(f, client.ObjectKeyFromObject(obj), obj)).Should(Succeed())
-	return h.Client.Status().Update(ctx, obj, opts...)
+	return handleError(h.Client.Status().Update(ctx, obj, opts...))
 }
 
 // mutate wraps a MutateFn and applies validation to its result.
@@ -392,4 +394,57 @@ func mutate(f controllerutil.MutateFn, key client.ObjectKey, obj client.Object) 
 		return fmt.Errorf("MutateFn cannot mutate object name and/or object namespace")
 	}
 	return nil
+}
+
+func handleError(err error) error {
+	if err == nil {
+		return nil
+	}
+
+	// Client issue
+	if isRuntime(err) {
+		StopTrying("Stopped Trying").Wrap(err).Now()
+	}
+
+	// Generic connection issue
+	// return generic errors so they can be retried (maybe handle other http issues before returning)
+	statusErr, ok := err.(*k8sErrors.StatusError)
+	if !ok {
+		return err
+	}
+
+	if secondsToDelay, ok := k8sErrors.SuggestsClientDelay(statusErr); ok {
+		TryAgainAfter(time.Duration(secondsToDelay) * time.Second).Wrap(statusErr).Now()
+	}
+
+	// if it can be retried
+	if IsRetryable(statusErr) {
+		return statusErr
+	}
+
+	StopTrying("Stopped Trying").Wrap(statusErr).Now()
+
+	return err
+}
+
+func isRuntime(err error) bool {
+	return runtime.IsMissingKind(err) ||
+		runtime.IsMissingVersion(err) ||
+		runtime.IsNotRegisteredError(err) ||
+		runtime.IsStrictDecodingError(err)
+}
+
+func IsRetryable(err error) bool {
+	reason := k8sErrors.ReasonForError(err)
+	_, isRetryable := retryableReasons[reason]
+	return isRetryable
+}
+
+var retryableReasons = map[metav1.StatusReason]struct{}{
+	metav1.StatusReasonNotFound:           {},
+	metav1.StatusReasonServerTimeout:      {},
+	metav1.StatusReasonTimeout:            {},
+	metav1.StatusReasonTooManyRequests:    {},
+	metav1.StatusReasonInternalError:      {},
+	metav1.StatusReasonServiceUnavailable: {},
 }

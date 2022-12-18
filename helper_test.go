@@ -13,6 +13,7 @@ import (
 	. "github.com/onsi/gomega/gexec"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/kubernetes/scheme"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -148,6 +149,29 @@ var _ = Describe("KubernetesHelper", func() {
 		AfterEach(func(ctx SpecContext) {
 			Eventually(k8s.Delete).WithContext(ctx).WithArguments(pod, GracePeriodSeconds(0)).Should(Succeed())
 		}, NodeTimeout(time.Minute))
+	})
+
+	When("using an invalid object", func() {
+		var invalidPod *unstructured.Unstructured
+		BeforeEach(func() {
+			invalidPod = &unstructured.Unstructured{
+				Object: map[string]interface{}{
+					"metadata": map[string]interface{}{
+						"name":      "my-pod",
+						"namespace": "default",
+					},
+					"spec": map[string]interface{}{
+						"containers": "yes",
+					},
+				},
+			}
+		})
+		It("should stop trying when the kubernetes API returns an error", func(ctx SpecContext) {
+			Expect(func() {
+				k8s.Create(ctx, invalidPod)
+			}).Should(Panic())
+		}, SpecTimeout(time.Minute))
+
 	})
 
 	When("running a basic pod", func() {
