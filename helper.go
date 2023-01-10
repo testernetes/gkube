@@ -204,7 +204,9 @@ func (h *helper) Exec(ctx context.Context, pod *corev1.Pod, container string, co
 		session.Out.Close()
 		session.Err.Close()
 		if err != nil {
-			fmt.Fprintf(errWriter, err.Error())
+			if errWriter != nil {
+				fmt.Fprintf(errWriter, err.Error())
+			}
 			if exitcode, ok := err.(k8sExec.CodeExitError); ok {
 				session.exitCode = exitcode.Code
 				return
@@ -403,11 +405,11 @@ func handleError(err error) error {
 
 	// Client issue
 	if isRuntime(err) {
-		StopTrying("Stopped Trying").Wrap(err).Now()
+		StopTrying("Runtime Error").Wrap(err).Now()
 	}
 
 	// Generic connection issue
-	// return generic errors so they can be retried (maybe handle other http issues before returning)
+	// return generic errors so they can be retried (TODO maybe handle other http issues before returning)
 	statusErr, ok := err.(*k8sErrors.StatusError)
 	if !ok {
 		return err
@@ -422,7 +424,7 @@ func handleError(err error) error {
 		return statusErr
 	}
 
-	StopTrying("Stopped Trying").Wrap(statusErr).Now()
+	StopTrying("Status Error").Wrap(statusErr).Now()
 
 	return err
 }
