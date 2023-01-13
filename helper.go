@@ -250,7 +250,9 @@ func (h *helper) Logs(ctx context.Context, pod *corev1.Pod, podLogOptions *corev
 		defer stream.Close()
 		_, err := io.Copy(logOut, stream)
 		if err != nil {
-			fmt.Fprintf(errWriter, err.Error())
+			if errWriter != nil {
+				fmt.Fprintf(errWriter, err.Error())
+			}
 			session.exitCode = 254
 			return
 		}
