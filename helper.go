@@ -451,4 +451,5 @@ var retryableReasons = map[metav1.StatusReason]struct{}{
 	metav1.StatusReasonTooManyRequests:    {},
 	metav1.StatusReasonInternalError:      {},
 	metav1.StatusReasonServiceUnavailable: {},
+	metav1.StatusReasonConflict:           {},
 }
