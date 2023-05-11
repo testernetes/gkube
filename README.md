@@ -9,10 +9,11 @@ package simple
 
 import (
 	"testing"
+	"time"
 
-	. "github.com/testernetes/gkube"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	. "github.com/testernetes/gkube"
 
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -21,33 +22,40 @@ import (
 var _ = Describe("Simple use of the KubernetesHelper", Ordered, func() {
 
 	var k8s KubernetesHelper
-	var namespace *corev1.Namespace
+	var cm *corev1.ConfigMap
 
 	BeforeAll(func() {
 		k8s = NewKubernetesHelper()
-		namespace = &corev1.Namespace{
+		cm = &corev1.ConfigMap{
 			ObjectMeta: metav1.ObjectMeta{
-				Name: "simple",
+				Name:      "simple-example",
+				Namespace: "default",
 			},
 		}
 	})
 
-	It("should create a namespace", func() {
-		Eventually(k8s.Create(namespace)).Should(Succeed())
-		Eventually(k8s.Object(namespace)).Should(
-			HaveJSONPath("{.status.phase}", Equal(corev1.NamespacePhase("Active"))),
-		)
-	})
+	It("should create a configmap", func(ctx SpecContext) {
+		Eventually(k8s.Create).WithContext(ctx).WithArguments(cm).Should(Succeed())
+	}, SpecTimeout(time.Minute))
 
-	It("should filter a list of namespaces using a JSONPath", func() {
-		Eventually(k8s.Objects(&corev1.NamespaceList{})).Should(
-			HaveJSONPath("{.items[*].metadata.name}", ContainElement("simple")),
-		)
-	})
+	It("should update the configmap", func(ctx SpecContext) {
+		Eventually(k8s.Update).WithContext(ctx).WithArguments(cm, func() error {
+			cm.Data = map[string]string{
+				"something": "simple",
+			}
+			return nil
+		}).Should(Succeed())
+	}, SpecTimeout(time.Minute))
 
-	AfterAll(func() {
-		Eventually(k8s.Delete(namespace, GracePeriodSeconds(30))).Should(Succeed())
-	})
+	It("should contain something simple ", func(ctx SpecContext) {
+		Eventually(k8s.Object).WithContext(ctx).WithArguments(cm).Should(
+			HaveJSONPath("{.data.something}", Equal("simple")),
+		)
+	}, SpecTimeout(time.Minute))
+
+	AfterAll(func(ctx SpecContext) {
+		Eventually(k8s.Delete(ctx, cm)).Should(Succeed())
+	}, NodeTimeout(time.Minute))
 })
 
 func TestKubernetesHelper(t *testing.T) {
