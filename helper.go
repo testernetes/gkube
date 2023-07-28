@@ -106,7 +106,7 @@ func newKubernetesHelper(opts ...HelperOption) *helper {
 	podRestInterface, err := apiutil.RESTClientForGVK(schema.GroupVersionKind{
 		Version: "v1",
 		Kind:    "Pod",
-	}, false, helper.Config, serializer.NewCodecFactory(helper.Scheme))
+	}, false, helper.Config, serializer.NewCodecFactory(helper.Scheme), http.DefaultClient)
 	Expect(err).ShouldNot(HaveOccurred())
 	helper.PodRestInterface = podRestInterface
 
